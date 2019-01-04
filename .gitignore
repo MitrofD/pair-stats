@@ -1,0 +1,6 @@
+node_modules
+bundle/
+bundle.tar.gz
+.appconf
+yarn-error.log
+yarn.lock

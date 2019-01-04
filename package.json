@@ -1,0 +1,26 @@
+{
+  "name": "stats24",
+  "version": "1.0.0",
+  "description": "24 hours statistic for exchange",
+  "author": "Dmitriy Mitrophanskiy <dmitrophanskiy@gmail.com>",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "build": "bash shells/build.sh",
+    "start": "bash shells/start.sh"
+  },
+  "devDependencies": {
+    "@babel/cli": "^7.2.3",
+    "@babel/core": "^7.2.2",
+    "@babel/node": "^7.2.2",
+    "@babel/preset-flow": "^7.0.0",
+    "babel-eslint": "^10.0.1",
+    "eslint": "^5.11.1",
+    "eslint-config-airbnb-base": "^13.1.0",
+    "eslint-plugin-flowtype": "^3.2.0",
+    "eslint-plugin-flowtype-errors": "^3.6.0",
+    "eslint-plugin-import": "^2.14.0",
+    "flow-bin": "^0.89.0",
+    "nodemon": "^1.18.9"
+  }
+}
