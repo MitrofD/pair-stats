@@ -1,7 +1,7 @@
 {
-  "name": "stats24",
+  "name": "pair-stats24",
   "version": "1.0.0",
-  "description": "24 hours statistic for exchange",
+  "description": "24 hours pair statistics",
   "author": "Dmitriy Mitrophanskiy <dmitrophanskiy@gmail.com>",
   "license": "MIT",
   "private": true,
@@ -22,5 +22,8 @@
     "eslint-plugin-import": "^2.14.0",
     "flow-bin": "^0.89.0",
     "nodemon": "^1.18.9"
+  },
+  "dependencies": {
+    "node-rdkafka": "^2.5.1"
   }
 }

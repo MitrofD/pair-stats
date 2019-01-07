@@ -1,5 +1,5 @@
 [include]
-./app/
+./src/
 [options]
 include_warnings=true
 module.ignore_non_literal_requires=true

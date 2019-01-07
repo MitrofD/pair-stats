@@ -1,5 +1,5 @@
 #!/bin/bash
-configFile=.appconf
+configFile=.conf
 callbackFunc=$1
 
 if [[ `type -t $callbackFunc` != function ]]
