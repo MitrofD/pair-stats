@@ -1,9 +1,15 @@
 // @flow
 const MS_IN_SEC = 1000;
-const STATISTICS_DURATION = 86400 * MS_IN_SEC;
-const STATISTICS_STEP_DELAY = 2.5 * MS_IN_SEC;
 
-if (STATISTICS_DURATION < STATISTICS_STEP_DELAY) {
+const {
+  DURATION_MS,
+  STEP_DELAY_MS,
+} = process.env;
+
+const pureDuration = parseInt(DURATION_MS) || 86400000;
+const pureStepDelay = parseInt(STEP_DELAY_MS) || 1000;
+
+if (pureDuration < pureStepDelay) {
   throw new Error('Statistics step delay can\'t be great than duration');
 }
 
@@ -13,11 +19,15 @@ const ACTIONS = {
   REMOVE_PAIR: 'REMOVE_PAIR',
 };
 
+const PAIRS_FILE_PATH = `${DATA_PATH}/pairs`;
+const PAIR_FILES_DIR_PATH = `${DATA_PATH}/pair-files`;
+
 const COMMON_DATA = {
   ACTIONS,
-  STATISTICS_DURATION,
-  STATISTICS_STEP_DELAY,
-  FILES_PATH: `${DATA_PATH}/pairs`,
+  PAIRS_FILE_PATH,
+  PAIR_FILES_DIR_PATH,
+  DURATION: pureDuration,
+  STEP_DELAY: pureStepDelay,
 };
 
 module.exports = COMMON_DATA;

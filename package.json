@@ -1,7 +1,7 @@
 {
-  "name": "pair-stats24",
+  "name": "pair-stats",
   "version": "1.0.0",
-  "description": "24 hours pair statistics",
+  "description": "Pair statistics",
   "author": "Dmitriy Mitrophanskiy <dmitrophanskiy@gmail.com>",
   "license": "MIT",
   "private": true,

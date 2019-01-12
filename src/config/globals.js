@@ -6,7 +6,18 @@ const path = require('path');
 const dataDirName = 'data';
 const envs = process.env;
 
-global.IS_DEV_MODE = envs.NODE_ENV === 'development';
+global.ErrorHandler = () => {};
+
+global.IS_DEV_MODE = false;
+
+if (envs.NODE_ENV === 'development') {
+  IS_DEV_MODE = true;
+
+  ErrorHandler = (error: Error) => {
+    throw error;
+  };
+}
+
 global.IS_MASTER = cluster.isMaster;
 global.ROOT_PATH = path.dirname(require.main.filename);
 global.DATA_PATH = `${ROOT_PATH}/${dataDirName}`;

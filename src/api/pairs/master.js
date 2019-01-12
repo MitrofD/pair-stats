@@ -1,23 +1,17 @@
 // @flow
 const cluster = require('cluster');
+const { KafkaConsumer } = require('node-rdkafka');
 const fs = require('fs');
 const common = require('./common');
+const tools = require('../tools');
 
-(function makeDirIfNeeded() {
-  try {
-    const pairsPathStat = fs.statSync(common.FILES_PATH);
+type ProcessAction = Object & {
+  action: string,
+};
 
-    if (!pairsPathStat.isDirectory()) {
-      fs.mkdirSync(common.FILES_PATH);
-    }
-  } catch (error) {
-    if (error.code !== 'ENOENT') {
-      throw error;
-    }
-
-    fs.mkdirSync(common.FILES_PATH);
-  }
-}());
+const WORKERS_ARR: Object[] = Object.values(cluster.workers);
+const PAIRS_REL_WORKER: { [string]: Object } = {};
+let TMP_DATA: { [string]: string[] } = {};
 
 const startWorkersLength = Object.keys(cluster.workers).length;
 
@@ -25,8 +19,125 @@ if (startWorkersLength === 0) {
   throw new Error('Not found workers');
 }
 
-const WORKERS_ARR: Object[] = Object.values(cluster.workers);
-const PAIRS_REL_WORKER: { [string]: Object } = {};
+const getPairs = (): Promise<string[]> => {
+  const readFile = (clbck: Function) => {
+    fs.readFile(common.PAIRS_FILE_PATH, 'utf8', clbck);
+  };
+
+  const strAsPairsArr = (str: string) => {
+    const pureStr = str.trim();
+    const pairArr = pureStr.split('\n');
+    const rArr = pairArr.map((pair) => pair.trim());
+
+    return rArr;
+  };
+
+  const getPromise = new Promise((resolve, reject) => {
+    readFile((rError, rData) => {
+      if (rError && rError.code !== 'ENOENT') {
+        reject(rError);
+        return;
+      }
+
+      if (rData) {
+        const pairsArray = strAsPairsArr(rData);
+        resolve(pairsArray);
+        return;
+      }
+
+      fs.open(common.PAIRS_FILE_PATH, 'w+', (cError, fd) => {
+        if (cError) {
+          reject(cError);
+          return;
+        }
+
+        fs.close(fd, () => {
+          readFile((rAError, rAData) => {
+            if (rAError) {
+              reject(rAError);
+              return;
+            }
+
+            const pairsArray = strAsPairsArr(rAData);
+            resolve(pairsArray);
+          });
+        });
+      });
+    });
+
+  /*
+  const getPromise = new Promise((resolve, reject) => {
+    fs.readFile(common.PAIRS_FILE_PATH, {
+      encoding: 'utf8',
+      flag: 'a+',
+    }, (error, data: string) => {
+      if (error && error.code !== 'ENOENT') {
+        reject(error);
+        return;
+      }
+
+      resolve(data);
+    });
+
+    /*
+    const readFile = (clbck: Funtion) => {
+      fs.readFile(common.PAIRS_FILE_PATH, 'r', clbck);
+    };
+
+    readFile((error, fd) => {
+      if (error && error.code !== 'ENOENT') {
+        reject(error);
+        return;
+      }
+
+      fs.open('w', )
+    });
+    */
+  });
+
+  return getPromise;
+};
+
+const createPairFilesDir = (): Promise<void> => {
+  const createPromise = new Promise((resolve, reject) => {
+    fs.stat(common.PAIR_FILES_DIR_PATH, (error, stat) => {
+      const mkDirCallback: Function = (mDError) => {
+        if (mDError) {
+          reject(mDError);
+          return;
+        }
+
+        resolve();
+      };
+
+      if (error) {
+        if (error.code === 'ENOENT') {
+          fs.mkdir(common.PAIR_FILES_DIR_PATH, mkDirCallback);
+          return;
+        }
+
+        reject(error);
+        return;
+      }
+
+      if (!stat.isDirectory()) {
+        fs.mkdir(common.PAIR_FILES_DIR_PATH, mkDirCallback);
+        return;
+      }
+
+      resolve();
+    });
+  });
+
+  return createPromise;
+};
+
+const getPairsPromise = getPairs();
+const createPairFilesDirPromise = createPairFilesDir();
+const createFileAndDirIdNeeded = Promise.all([
+  getPairsPromise,
+  createPairFilesDirPromise,
+]);
 
 const getNextWorker = (function genGetNextWorker() {
   const resetIdx = 0;
@@ -45,36 +156,9 @@ const getNextWorker = (function genGetNextWorker() {
   };
 }());
 
-const getPairFileNames = (): Promise<string[]> => {
-  const getPromise = new Promise((resolve, reject) => {
-    fs.readdir(common.FILES_PATH, {
-      encoding: 'utf8',
-      withFileTypes: true,
-    }, (error, files) => {
-      if (error) {
-        reject(error);
-        return;
-      }
-
-      const pureFiles: string[] = [];
-
-      /* eslint-disable flowtype-errors/show-errors */
-      files.forEach((file) => {
-        if (file.isFile()) {
-          pureFiles.push(file.name);
-        }
-      });
-      /* eslint-enable flowtype-errors/show-errors */
-
-      resolve(pureFiles);
-    });
-  });
-
-  return getPromise;
-};
-
 const addPair = (pair: string) => {
   const worker = getNextWorker();
+  PAIRS_REL_WORKER[pair] = worker;
 
   worker.send({
     pair,
@@ -82,37 +166,125 @@ const addPair = (pair: string) => {
   });
 };
 
-const sendActionToAllWorkers = (data: any) => {
+const sendActionToAllWorkers = (data: ProcessAction) => {
   for (let i = 0; i < WORKERS_ARR.length; i += 1) {
     const worker = WORKERS_ARR[i];
     worker.send(data);
   }
 };
 
-const allWorkersDidInit = () => {
-  getPairFileNames().then((files) => {
-    files.forEach(addPair);
-  }).catch((error) => {
-    throw error;
+const ticker = (function makeTicker() {
+  let timeoutID: ?TimeoutID = null;
+
+  const makeTick = () => {
+    const nowTime = Date.now();
+    const needDelay = common.STEP_DELAY - (nowTime % common.STEP_DELAY);
+
+    timeoutID = setTimeout(() => {
+      sendActionToAllWorkers({
+        action: common.ACTIONS.TICK,
+        data: TMP_DATA,
+      });
+
+      TMP_DATA = {};
+      makeTick();
+    }, needDelay);
+  };
+
+  return Object.freeze({
+    start: makeTick,
+
+    stop() {
+      if (timeoutID !== null) {
+        clearTimeout(timeoutID);
+        timeoutID = null;
+      }
+    },
   });
+}());
+let initPairs: ?Array<string> = null;
+
+const startWorkersIfNeeded = () => {
+  if (initPairs) {
+    initPairs.forEach(addPair);
+    ticker.start();
+  }
 };
 
-(function applyWorkers() {
+createFileAndDirIdNeeded.then(([pairs]) => {
+  initPairs = pairs;
+  startWorkersIfNeeded();
+}).catch((error) => {
+  throw error;
+});
+
+(function initWorkers() {
   let currCount = 0;
-  const onlineEventName = 'online';
+  const eventName = 'online';
 
   function onlineFunc() {
-    this.off(onlineEventName, onlineFunc);
+    this.off(eventName, onlineFunc);
     currCount += 1;
 
     if (currCount === startWorkersLength) {
-      allWorkersDidInit();
+      startWorkersIfNeeded();
     }
   }
 
-  const workerKeys = Object.keys(cluster.workers);
-  workerKeys.forEach((workerId) => {
-    const worker = cluster.workers[workerId];
-    worker.on(onlineEventName, onlineFunc);
+  for (let i = 0; i < WORKERS_ARR.length; i += 1) {
+    const worker = WORKERS_ARR[i];
+    worker.on(eventName, onlineFunc);
+  }
+}());
+
+(function initKafka() {
+  const {
+    KAFKA_BROKERS,
+  } = process.env;
+
+  const emptyStr = '';
+  const kafkaBrokerListStr = typeof KAFKA_BROKERS === 'string' ? KAFKA_BROKERS.replace(' ', emptyStr) : emptyStr;
+  const kafkaBrokerListArr = kafkaBrokerListStr.split(',');
+
+  if (kafkaBrokerListArr.length === 0) {
+    throw new Error('Settings option "KAFKA_BROKERS" is required');
+  }
+
+  for (let i = 0; i < kafkaBrokerListArr.length; i += 1) {
+    const kafkaBroker = kafkaBrokerListArr[i];
+
+    if (!tools.urlRegExp.test(kafkaBroker)) {
+      throw new Error('Settings option "KAFKA_BROKERS" is incorrect.(Ex: 127.0.0.1:9092,127.0.0.1:9093)');
+    }
+  }
+
+  const consumer = new KafkaConsumer({
+    'group.id': 'pair-stats',
+    'metadata.broker.list': kafkaBrokerListStr,
   });
+
+  consumer.on('ready', () => {
+    consumer.subscribe([
+      'pair-transaction',
+    ]);
+
+    consumer.consume();
+  }).on('data', (data) => {
+    const mess = data.value.toString();
+    const messParts = mess.split(' ');
+    const pairName = messParts[0];
+    const item = [
+      messParts[1],
+      messParts[2],
+    ];
+
+    if (!tools.has.call(TMP_DATA, pairName)) {
+      TMP_DATA[pairName] = [item];
+      return;
+    }
+
+    TMP_DATA[pairName].push(item);
+  });
+
+  consumer.connect();
 }());
