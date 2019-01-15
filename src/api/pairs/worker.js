@@ -1,166 +1,63 @@
 // @flow
-const cluster = require('cluster');
 const fs = require('fs');
 const common = require('./common');
 const tools = require('../tools');
 
-/* ITEM STRUCTURE: [time, max, prevMax, min, prevMin, size, totalSize] */
-/*
+// Item structure: [time, price, max, min, size]
+
 type Value = number[];
 type Values = Value[];
 
-const MAX_VALS: { [string]: Values } = {};
-const MIN_VALS: { [string]: Values } = {};
-const SIZE_VALS: { [string]: Values } = {};
+const VALS: { [string]: Values } = {};
 
-const getPairFilePath = (pair: string) => `${common.FILES_PATH}/${pair}`;
+const getFilePath = (pair: string) => `${common.PAIR_FILES_DIR_PATH}/${pair}`;
 
-const getValuesBeforeTime = (vals: Values, time: number): Values => {
-  const rVals: Values = [];
-  const valsLength = vals.length;
+const pairExists = (pair: string) => tools.has.call(VALS, pair);
 
-  for (let i = 0; i < valsLength; i += 1) {
-    const val = rVals[i];
-    const valTime = val[0];
+const getInitStatsForPair = (pair: string): Promise<Values> => {
+  const pathFile = getFilePath(pair);
 
-    if (valTime < time) {
-      break;
-    }
+  const getPromise = new Promise((resolve) => {
+    fs.readFile(pathFile, (error, data) => {
+      let rArr: Values = [];
 
-    rVals.push(val);
-  }
+      if (data) {
+        try {
+          // eslint-disable-next-line flowtype-errors/show-errors
+          const json = JSON.parse(data);
 
-  return rVals;
-};
-
-const getInitStatsForPair = (pair: string): Promise<Object> => {
-  const savePath = getPairFilePath(pair);
-
-  const getPromise = new Promise((resolve, reject) => {
-    fs.readFile(savePath, (error, data) => {
-      if (error) {
-        reject(error);
-        return;
+          if (Array.isArray(json)) {
+            rArr = json;
+          }
+          // eslint-disable-next-line no-empty
+        } catch (parseError) {}
       }
 
-      let rObj = {};
-
-      try {
-        // eslint-disable-next-line flowtype-errors/show-errors
-        const json = JSON.parse(data);
-
-        if (typeof json === 'object' && json !== null) {
-          rObj = json;
-        }
-        // eslint-disable-next-line no-empty
-      } catch (parseError) {}
-
-      const beforeTime = Date.now() - common.DURATION;
-
-      const reqAttrs = [
-        'MAX_VALS',
-        'MIN_VALS',
-        'SIZE_VALS',
-      ];
-
-      reqAttrs.forEach((attr) => {
-        const checkArr: Values = Array.isArray(rObj[attr]) ? rObj[attr] : [];
-        rObj[attr] = getValuesBeforeTime(checkArr, beforeTime);
-      });
-
-      resolve(rObj);
+      resolve(rArr);
     });
   });
 
   return getPromise;
 };
 
-const getDataFromRow = (strArr: string[]): number[] => {
-  let totalSize = 0;
-  let max = Number.NEGATIVE_INFINITY;
-  let min = Number.POSITIVE_INFINITY;
-  const arrLength = strAr.length;
-
-  for (let i = 0; i < arrLength; i += 1) {
-    const price = +strArr[0];
-    const size = +strArr[1];
-    totalSize += size;
-
-    if (price > max) {
-      max = price;
-    }
-
-    if (price < min) {
-      min = price;
-    }
-  }
-
-  return [
-    max,
-    min,
-    totalSize,
-  ];
-};
-
 const addPair = (pair: string) => {
-  if (tools.has.call(STATS, pair)) {
+  const purePair = pair.trim();
+
+  if (pairExists(purePair)) {
     return;
   }
 
-  getInitStatsForPair(pair).then((stats) => {
-    MAX_VALS[pair] = stats;
-    VALS[pair] = getStatByIdx(pair, 0);
+  getInitStatsForPair(purePair).then((stats) => {
+    VALS[purePair] = stats;
   }).catch(ErrorHandler);
 };
 
-const tick = (data: { [string]: string[] }) => {
-  const timeNow = Date.now();
-  const maxRangeTime = timeNow - common.DURATION;
-  const availablePairs = Object.keys(MAX_VALS);
-  const pLength = availablePairs.length;
-
-  for (let i = 0; i < pLength; i += 1) {
-    const pair = availablePairs[i];
-    const pairVal = VALS[pair];
-    /*
-    const stats = STATS[pair];
-    const statsLength = stats.length;
-    const lastVal = getStatByIdx(pair, statsLength - 1);
-    */
-
-/*
-    if (lastVal[0] >= maxRangeTime) {
-
-      break;
-    }
-
-    if (NEED_COUNT === statsLength) {
-
-      const prevVal = getStatByIdx(pair, 1);
-      pairVal.tSize -= lastVal.size;
-
-      if (lastVal.max === pairVal.max) {
-        pairVal.max
-      }
-    }
-
-    if (tools.has.call(data, pair)) {
-      const currPairData = getDataFromRow(pair);
-    }
-    */
-/*
-  }
-};
-
-const pairExists = (pair: string) => (tools.has.call(MAX_VALS, pair));
-
 const removePair = (pair: string) => {
-  delete MAX_VALS[pair];
-  delete MIN_VALS[pair];
-  delete SIZE_VALS[pair];
+  const purePair = pair.trim();
+  delete VALS[purePair];
 
-  const filePath = getPairFilePath(pair);
-  fs.unlink(filePath, () => {});
+  const filePath = getFilePath(pair);
+  fs.unlink(filePath, ErrorHandler);
 };
 
 const savePair = (pair: string): Promise<void> => {
@@ -169,17 +66,11 @@ const savePair = (pair: string): Promise<void> => {
     return Promise.reject(saveError);
   }
 
-  const savePath = getPairFilePath(pair);
-  const saveData = {
-    MAX_VALS: MAX_VALS[pair],
-    MIN_VALS: MIN_VALS[pair],
-    SIZE_VALS: SIZE_VALS[pair],
-  };
-
-  const saveData = JSON.stringify(saveData);
+  const savePath = getFilePath(pair);
+  const saveDataStr = JSON.stringify(VALS[pair]);
 
   const savePromise = new Promise((resolve, reject) => {
-    fs.writeFile(savePath, saveData, (error) => {
+    fs.writeFile(savePath, saveDataStr, (error) => {
       if (error) {
         reject(error);
         return;
@@ -192,11 +83,117 @@ const savePair = (pair: string): Promise<void> => {
   return savePromise;
 };
 
+const dump = () => {
+  const availablePairs = Object.keys(VALS);
+  const pLength = availablePairs.length;
+  let i = 0;
+
+  for (i; i < pLength; i += 1) {
+    const pair = availablePairs[i];
+    savePair(pair).catch(ErrorHandler);
+  }
+};
+
+const tick = (data: { [string]: string[] }) => {
+  const timeNow = Date.now();
+  const availablePairs = Object.keys(VALS);
+  const pLength = availablePairs.length;
+  let i = 0;
+
+  for (i; i < pLength; i += 1) {
+    const pair = availablePairs[i];
+    const pairDataArr = VALS[pair];
+
+    setImmediate(() => {
+      const addData: string[] = Array.isArray(data[pair]) ? data[pair] : [];
+      const addDataLength = addData.length;
+
+      if (addDataLength > 0) {
+        let addSize = 0;
+        let addMax = 0;
+        let addMin = Number.POSITIVE_INFINITY;
+        let aI = 0;
+
+        for (aI; aI < addDataLength; aI += 1) {
+          const addDataItem = addData[aI];
+          const price = +addDataItem[0];
+          const size = +addDataItem[1];
+          addSize += size;
+
+          if (price > addMax) {
+            addMax = price;
+          }
+
+          if (price < addMin) {
+            addMin = price;
+          }
+        }
+
+        const firstItem = addData[0];
+        const price = +firstItem[0];
+
+        pairDataArr.splice(0, 0, [
+          timeNow,
+          price,
+          addMax,
+          addMin,
+          addSize,
+        ]);
+      }
+
+      const beforeTime = timeNow - common.DURATION;
+      const pairDataArrLength = pairDataArr.length;
+
+      let max = 0;
+      let min = Number.POSITIVE_INFINITY;
+      let size = 0;
+      let tI = 0;
+
+      for (tI; tI < pairDataArrLength; tI += 1) {
+        const pairDataItem = pairDataArr[tI];
+
+        if (pairDataItem[0] < beforeTime) {
+          const sliceLength = pairDataArrLength - tI;
+          pairDataArr.splice(tI, sliceLength);
+          break;
+        }
+
+        size += pairDataItem[4];
+
+        if (pairDataItem[2] > max) {
+          max = pairDataItem[2];
+        }
+
+        if (pairDataItem[3] < min) {
+          min = pairDataItem[3];
+        }
+      }
+
+      const pairDataArrNewLength = pairDataArr.length;
+      let change = 0;
+
+      if (pairDataArrNewLength > 0) {
+        const fItem = pairDataArr[0];
+        const lItem = pairDataArr[pairDataArrNewLength - 1];
+        const lastPrice = lItem[1];
+        const diff = lastPrice - fItem[1];
+        change = diff / lastPrice * 100;
+      } else {
+        min = 0;
+      }
+
+      console.log(pair, 'Max:', max, 'Min:', min, 'Size:', size, 'Change:', change);
+    });
+  }
+};
+
 process.on('message', (function makeMessHandler() {
   const actions = {
     [common.ACTIONS.TICK](actionData: Object) {
       tick(actionData.data);
     },
+
+    [common.ACTIONS.DUMP]: dump,
 
     [common.ACTIONS.ADD_PAIR](actionData: Object) {
       addPair(actionData.pair);
@@ -213,63 +210,3 @@ process.on('message', (function makeMessHandler() {
     }
   };
 }()));
-*/
-
-/*
-(function startKafkaInit() {
-  const {
-    KAFKA_BROKERS,
-  } = process.env;
-
-  const emptyStr = '';
-  const kafkaBrokerListStr = typeof KAFKA_BROKERS === 'string' ? KAFKA_BROKERS.replace(' ', emptyStr) : emptyStr;
-  const kafkaBrokerListArr = kafkaBrokerListStr.split(',');
-
-  if (kafkaBrokerListArr.length === 0) {
-    throw new Error('Settings option "KAFKA_BROKERS" is required');
-  }
-
-  for (let i = 0; i < kafkaBrokerListArr.length; i += 1) {
-    const kafkaBroker = kafkaBrokerListArr[i];
-
-    if (!tools.urlRegExp.test(kafkaBroker)) {
-      throw new Error('Settings option "KAFKA_BROKERS" is incorrect.(Ex: 127.0.0.1:9092,127.0.0.1:9093)');
-    }
-  }
-
-  const consumer = new KafkaConsumer({
-    'group.id': `stats-${cluster.worker.id}`,
-    'metadata.broker.list': kafkaBrokerListStr,
-  });
-
-  consumer.on('ready', () => {
-    consumer.subscribe([
-      'pair-transaction',
-    ]);
-
-    consumer.consume();
-  }).on('data', (data) => {
-    const mess = data.value.toString();
-    const messParts = mess.split(' ');
-    const pairName = messParts[0];
-    // console.log(`stats-${cluster.worker.id}`, pairName);
-
-    if (tools.has.call(TMP_VALS, pairName)) {
-      const tmpVal = TMP_VALS[pairName];
-      const price = +messParts[1];
-      const size = +messParts[2];
-      tmpVal.size += size;
-
-      if (price > tmpVal.max) {
-        tmpVal.max = price;
-      }
-
-      if (price < tmpVal.min) {
-        tmpVal.min = price;
-      }
-    }
-  });
-
-  consumer.connect();
-}());
-*/

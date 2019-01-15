@@ -28,7 +28,6 @@ const getPairs = (): Promise<string[]> => {
     const pureStr = str.trim();
     const pairArr = pureStr.split('\n');
     const rArr = pairArr.map((pair) => pair.trim());
-
     return rArr;
   };
 
@@ -64,35 +63,6 @@ const getPairs = (): Promise<string[]> => {
         });
       });
     });
-
-  /*
-  const getPromise = new Promise((resolve, reject) => {
-    fs.readFile(common.PAIRS_FILE_PATH, {
-      encoding: 'utf8',
-      flag: 'a+',
-    }, (error, data: string) => {
-      if (error && error.code !== 'ENOENT') {
-        reject(error);
-        return;
-      }
-
-      resolve(data);
-    });
-
-    /*
-    const readFile = (clbck: Funtion) => {
-      fs.readFile(common.PAIRS_FILE_PATH, 'r', clbck);
-    };
-
-    readFile((error, fd) => {
-      if (error && error.code !== 'ENOENT') {
-        reject(error);
-        return;
-      }
-
-      fs.open('w', )
-    });
-    */
   });
 
   return getPromise;
@@ -167,51 +137,79 @@ const addPair = (pair: string) => {
 };
 
 const sendActionToAllWorkers = (data: ProcessAction) => {
-  for (let i = 0; i < WORKERS_ARR.length; i += 1) {
+  let i = 0;
+  const workersLength = WORKERS_ARR.length;
+
+  for (i; i < workersLength; i += 1) {
     const worker = WORKERS_ARR[i];
     worker.send(data);
   }
 };
 
-const ticker = (function makeTicker() {
-  let timeoutID: ?TimeoutID = null;
+const messCron = (function makeTicker() {
+  const dumpStep = 15000;
+  let dumpTimeoutID: ?TimeoutID = null;
+  let tickTimeoutID: ?TimeoutID = null;
 
-  const makeTick = () => {
-    const nowTime = Date.now();
-    const needDelay = common.STEP_DELAY - (nowTime % common.STEP_DELAY);
+  const dump = (msDelay: number) => {
+    dumpTimeoutID = setTimeout(() => {
+      sendActionToAllWorkers({
+        action: common.ACTIONS.DUMP,
+      });
 
-    timeoutID = setTimeout(() => {
+      dump(dumpStep);
+    }, msDelay);
+  };
+
+  const tick = (msDelay: number) => {
+    tickTimeoutID = setTimeout(() => {
       sendActionToAllWorkers({
         action: common.ACTIONS.TICK,
         data: TMP_DATA,
       });
 
       TMP_DATA = {};
-      makeTick();
-    }, needDelay);
+      tick(common.STEP_DELAY);
+    }, msDelay);
   };
 
-  return Object.freeze({
-    start: makeTick,
+  const stopTimeoutIfNeeded = (timeoutID: ?TimeoutID) => {
+    if (timeoutID !== null) {
+      clearTimeout(timeoutID);
+      // eslint-disable-next-line no-param-reassign
+      timeoutID = null;
+    }
+  };
+
+  return {
+    start() {
+      const nowTime = Date.now();
+      const needDumpDelay = dumpStep - (nowTime % dumpStep);
+      const needTickDelay = common.STEP_DELAY - (nowTime % common.STEP_DELAY);
+      dump(needDumpDelay);
+      tick(needTickDelay);
+    },
 
     stop() {
-      if (timeoutID !== null) {
-        clearTimeout(timeoutID);
-        timeoutID = null;
-      }
+      stopTimeoutIfNeeded(dumpTimeoutID);
+      stopTimeoutIfNeeded(tickTimeoutID);
     },
-  });
+  };
 }());
-let initPairs: ?Array<string> = null;
+
+let initPairs: Array<string> = [];
+let workersDidInit = false;
+let fileStructDidInit = false;
 
 const startWorkersIfNeeded = () => {
-  if (initPairs) {
+  if (workersDidInit && fileStructDidInit) {
     initPairs.forEach(addPair);
-    ticker.start();
+    messCron.start();
   }
 };
 
 createFileAndDirIdNeeded.then(([pairs]) => {
+  fileStructDidInit = true;
   initPairs = pairs;
   startWorkersIfNeeded();
 }).catch((error) => {
@@ -227,11 +225,15 @@ createFileAndDirIdNeeded.then(([pairs]) => {
     currCount += 1;
 
     if (currCount === startWorkersLength) {
+      workersDidInit = true;
       startWorkersIfNeeded();
     }
   }
 
-  for (let i = 0; i < WORKERS_ARR.length; i += 1) {
+  let i = 0;
+  const workersLength = WORKERS_ARR.length;
+
+  for (i; i < workersLength; i += 1) {
     const worker = WORKERS_ARR[i];
     worker.on(eventName, onlineFunc);
   }
@@ -245,12 +247,15 @@ createFileAndDirIdNeeded.then(([pairs]) => {
   const emptyStr = '';
   const kafkaBrokerListStr = typeof KAFKA_BROKERS === 'string' ? KAFKA_BROKERS.replace(' ', emptyStr) : emptyStr;
   const kafkaBrokerListArr = kafkaBrokerListStr.split(',');
+  const kafkaBrokerListArrLength = kafkaBrokerListArr.length;
 
-  if (kafkaBrokerListArr.length === 0) {
+  if (kafkaBrokerListArrLength === 0) {
     throw new Error('Settings option "KAFKA_BROKERS" is required');
   }
 
-  for (let i = 0; i < kafkaBrokerListArr.length; i += 1) {
+  let i = 0;
+
+  for (i; i < kafkaBrokerListArrLength; i += 1) {
     const kafkaBroker = kafkaBrokerListArr[i];
 
     if (!tools.urlRegExp.test(kafkaBroker)) {
@@ -269,21 +274,40 @@ createFileAndDirIdNeeded.then(([pairs]) => {
     ]);
 
     consumer.consume();
-  }).on('data', (data) => {
-    const mess = data.value.toString();
-    const messParts = mess.split(' ');
-    const pairName = messParts[0];
-    const item = [
-      messParts[1],
-      messParts[2],
-    ];
+  });
 
-    if (!tools.has.call(TMP_DATA, pairName)) {
-      TMP_DATA[pairName] = [item];
-      return;
+  const commitCount = 1500;
+  let messCounter = 0;
+
+  consumer.on('data', (data) => {
+    const totalMess = data.value.toString();
+    const messages = totalMess.split(',');
+    const messagesLength = messages.length;
+    let iM = 0;
+
+    for (iM; iM < messagesLength; iM += 1) {
+      messCounter += 1;
+
+      if (messCounter === commitCount) {
+        consumer.commit(data);
+        messCounter = 0;
+      }
+
+      const mess = messages[iM];
+      const messParts = mess.split(' ');
+      const pairName = messParts[0];
+      const item = [
+        messParts[1],
+        messParts[2],
+      ];
+
+      if (!tools.has.call(TMP_DATA, pairName)) {
+        TMP_DATA[pairName] = [item];
+        return;
+      }
+
+      TMP_DATA[pairName].push(item);
     }
-
-    TMP_DATA[pairName].push(item);
   });
 
   consumer.connect();

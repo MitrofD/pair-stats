@@ -1,6 +1,4 @@
 // @flow
-const MS_IN_SEC = 1000;
-
 const {
   DURATION_MS,
   STEP_DELAY_MS,
@@ -15,6 +13,7 @@ if (pureDuration < pureStepDelay) {
 
 const ACTIONS = {
   ADD_PAIR: 'ADD_PAIR',
+  DUMP: 'DUMP',
   TICK: 'TICK',
   REMOVE_PAIR: 'REMOVE_PAIR',
 };

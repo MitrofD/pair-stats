@@ -6,9 +6,9 @@ const path = require('path');
 const dataDirName = 'data';
 const envs = process.env;
 
-global.ErrorHandler = () => {};
-
 global.IS_DEV_MODE = false;
+
+global.ErrorHandler = () => {};
 
 if (envs.NODE_ENV === 'development') {
   IS_DEV_MODE = true;
