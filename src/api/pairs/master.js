@@ -146,8 +146,99 @@ const sendActionToAllWorkers = (data: ProcessAction) => {
   }
 };
 
-const messCron = (function makeTicker() {
-  const dumpStep = 15000;
+const kafkaConsumer = (function makeKafkaConsumer() {
+  const {
+    KAFKA_BROKERS,
+  } = process.env;
+
+  const emptyStr = '';
+  const brokerList = typeof KAFKA_BROKERS === 'string' ? KAFKA_BROKERS.replace(' ', emptyStr) : emptyStr;
+  const brokerListArr = brokerList.split(',');
+  const brokerListLength = brokerListArr.length;
+
+  if (brokerListLength === 0) {
+    throw new Error('Settings option "KAFKA_BROKERS" is required');
+  }
+
+  let i = 0;
+
+  for (i; i < brokerListLength; i += 1) {
+    const broker = brokerListArr[i];
+
+    if (!tools.urlRegExp.test(broker)) {
+      throw new Error('Settings option "KAFKA_BROKERS" is incorrect.(Ex: 127.0.0.1:9092,127.0.0.1:9093)');
+    }
+  }
+
+  const commitCount = 5000;
+  const topicName = 'pair-price-size';
+  let consumer: ?Object = null;
+  let messCounter = 0;
+
+  return Object.freeze({
+    start() {
+      this.stop();
+
+      const newConsumer = new KafkaConsumer({
+        'enable.auto.commit': false,
+        'group.id': 'pair-stats',
+        'metadata.broker.list': brokerList,
+      });
+
+      newConsumer.on('ready', () => {
+        newConsumer.subscribe([
+          topicName,
+        ]);
+
+        newConsumer.consume();
+      });
+
+      newConsumer.on('data', (data) => {
+        const totalMess = data.value.toString();
+        const messages = totalMess.split(',');
+        const messagesLength = messages.length;
+        let iM = 0;
+
+        for (iM; iM < messagesLength; iM += 1) {
+          messCounter += 1;
+
+          if (messCounter === commitCount) {
+            newConsumer.commit(data);
+            messCounter = 0;
+          }
+
+          const mess = messages[iM];
+          const messParts = mess.split(' ');
+          const pairName = messParts[0];
+          const item = [
+            messParts[1],
+            messParts[2],
+          ];
+
+          if (!tools.has.call(TMP_DATA, pairName)) {
+            TMP_DATA[pairName] = [item];
+            return;
+          }
+
+          TMP_DATA[pairName].push(item);
+        }
+      });
+
+      newConsumer.connect();
+      consumer = newConsumer;
+    },
+
+    stop() {
+      if (typeof consumer === 'object' && consumer !== null) {
+        consumer.disconnect();
+        consumer = null;
+      }
+    },
+  });
+}());
+
+const messCron = (function makeMessCron() {
+  const dumpStep = 30000;
   let dumpTimeoutID: ?TimeoutID = null;
   let tickTimeoutID: ?TimeoutID = null;
 
@@ -181,20 +272,23 @@ const messCron = (function makeTicker() {
     }
   };
 
-  return {
+  return Object.freeze({
     start() {
       const nowTime = Date.now();
       const needDumpDelay = dumpStep - (nowTime % dumpStep);
       const needTickDelay = common.STEP_DELAY - (nowTime % common.STEP_DELAY);
       dump(needDumpDelay);
       tick(needTickDelay);
+      kafkaConsumer.start();
     },
 
     stop() {
       stopTimeoutIfNeeded(dumpTimeoutID);
       stopTimeoutIfNeeded(tickTimeoutID);
+      kafkaConsumer.stop();
+      TMP_DATA = {};
     },
-  };
+  });
 }());
 
 let initPairs: Array<string> = [];
@@ -237,78 +331,4 @@ createFileAndDirIdNeeded.then(([pairs]) => {
     const worker = WORKERS_ARR[i];
     worker.on(eventName, onlineFunc);
   }
-}());
-
-(function initKafka() {
-  const {
-    KAFKA_BROKERS,
-  } = process.env;
-
-  const emptyStr = '';
-  const kafkaBrokerListStr = typeof KAFKA_BROKERS === 'string' ? KAFKA_BROKERS.replace(' ', emptyStr) : emptyStr;
-  const kafkaBrokerListArr = kafkaBrokerListStr.split(',');
-  const kafkaBrokerListArrLength = kafkaBrokerListArr.length;
-
-  if (kafkaBrokerListArrLength === 0) {
-    throw new Error('Settings option "KAFKA_BROKERS" is required');
-  }
-
-  let i = 0;
-
-  for (i; i < kafkaBrokerListArrLength; i += 1) {
-    const kafkaBroker = kafkaBrokerListArr[i];
-
-    if (!tools.urlRegExp.test(kafkaBroker)) {
-      throw new Error('Settings option "KAFKA_BROKERS" is incorrect.(Ex: 127.0.0.1:9092,127.0.0.1:9093)');
-    }
-  }
-
-  const consumer = new KafkaConsumer({
-    'group.id': 'pair-stats',
-    'metadata.broker.list': kafkaBrokerListStr,
-  });
-
-  consumer.on('ready', () => {
-    consumer.subscribe([
-      'pair-transaction',
-    ]);
-
-    consumer.consume();
-  });
-
-  const commitCount = 1500;
-  let messCounter = 0;
-
-  consumer.on('data', (data) => {
-    const totalMess = data.value.toString();
-    const messages = totalMess.split(',');
-    const messagesLength = messages.length;
-    let iM = 0;
-
-    for (iM; iM < messagesLength; iM += 1) {
-      messCounter += 1;
-
-      if (messCounter === commitCount) {
-        consumer.commit(data);
-        messCounter = 0;
-      }
-
-      const mess = messages[iM];
-      const messParts = mess.split(' ');
-      const pairName = messParts[0];
-      const item = [
-        messParts[1],
-        messParts[2],
-      ];
-
-      if (!tools.has.call(TMP_DATA, pairName)) {
-        TMP_DATA[pairName] = [item];
-        return;
-      }
-
-      TMP_DATA[pairName].push(item);
-    }
-  });
-
-  consumer.connect();
 }());
