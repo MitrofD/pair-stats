@@ -9,14 +9,25 @@ type ProcessAction = Object & {
   action: string,
 };
 
-const WORKERS_ARR: Object[] = Object.values(cluster.workers);
+let DATA: { [string]: string[] } = {};
+const WORKERS_ARR: Object[] = [];
 const PAIRS_REL_WORKER: { [string]: Object } = {};
-let TMP_DATA: { [string]: string[] } = {};
+const WORKER_REL_PAIRS_COUNT: { [string]: number } = {};
 
-const startWorkersLength = Object.keys(cluster.workers).length;
+const sWorkerIds = Object.keys(cluster.workers);
+const sWorkersLength = sWorkerIds.length;
 
-if (startWorkersLength === 0) {
+if (sWorkersLength === 0) {
   throw new Error('Not found workers');
+}
+
+let sWI = 0;
+
+for (sWI; sWI < sWorkersLength; sWI += 1) {
+  const workerId = sWorkerIds[sWI];
+  const worker = cluster.workers[workerId];
+  WORKERS_ARR.push(worker);
+  WORKER_REL_PAIRS_COUNT[workerId] = 0;
 }
 
 const getPairs = (): Promise<string[]> => {
@@ -109,6 +120,67 @@ const createFileAndDirIdNeeded = Promise.all([
   createPairFilesDirPromise,
 ]);
 
+/*
+const workers = (function makeWorker() {
+  const resetIdx = 0;
+  const tmpWorkers: Object[] = [];
+  let currIdx = resetIdx;
+
+  return Object.freeze({
+    get() {
+      if (tmpWorkers.length > 0) {
+        return tmpWorkers.shift();
+      }
+
+      let worker = WORKERS_ARR[currIdx];
+
+      if (!worker) {
+        currIdx = resetIdx;
+        worker = WORKERS_ARR[resetIdx];
+      }
+
+      currIdx += 1;
+      return worker;
+    },
+
+    toTMP(worker: Object) {
+      tmpWorkers.push(worker);
+    },
+  });
+}());
+*/
+
+const getNextWorker = () => {
+  const workerIds = Object.keys(cluster.workers);
+  const workerLength = workerIds.length;
+
+  let minCount = Number.POSITIVE_INFINITY;
+  let id = workerIds[0];
+  let i = 0;
+
+  for (i; i < workerLength; i += 1) {
+    const workerId = workerIds[i];
+
+    if (!tools.has.call(WORKER_REL_PAIRS_COUNT, workerId)) {
+      continue;
+    }
+
+    const pairsCount = WORKER_REL_PAIRS_COUNT[workerId];
+
+    if (pairsCount === 0) {
+      return cluster.workers[workerId];
+    }
+
+    if (minCount < pairsCount) {
+      id = workerId;
+      minCount = pairsCount;
+    }
+  }
+
+  return cluster.workers[id];
+};
+
+/*
 const getNextWorker = (function genGetNextWorker() {
   const resetIdx = 0;
   let currWorkerIdx = resetIdx;
@@ -125,14 +197,31 @@ const getNextWorker = (function genGetNextWorker() {
     return worker;
   };
 }());
+*/
 
 const addPair = (pair: string) => {
   const worker = getNextWorker();
   PAIRS_REL_WORKER[pair] = worker;
+  WORKER_REL_PAIRS_COUNT[pair] += 1;
 
   worker.send({
     pair,
     action: common.ACTIONS.ADD_PAIR,
+  });
+};
+
+const removePair = (pair: string) => {
+  if (!tools.has.call(PAIRS_REL_WORKER, pair)) {
+    return;
+  }
+
+  const worker = PAIRS_REL_WORKER[pair];
+  delete PAIRS_REL_WORKER[pair];
+  WORKER_REL_PAIRS_COUNT[pair] -= 1;
+
+  worker.send({
+    pair,
+    action: common.ACTIONS.REMOVE_PAIR,
   });
 };
 
@@ -146,7 +235,7 @@ const sendActionToAllWorkers = (data: ProcessAction) => {
   }
 };
 
-const kafkaConsumer = (function makeKafkaConsumer() {
+const KAFKA_BROKERS_LIST = (function getPureKfkaBrokers() {
   const {
     KAFKA_BROKERS,
   } = process.env;
@@ -170,10 +259,13 @@ const kafkaConsumer = (function makeKafkaConsumer() {
     }
   }
 
-  const commitCount = 5000;
-  const topicName = 'pair-price-size';
+  return brokerList;
+}());
+const KAFKA_GROUP_ID = 'pair-stats';
+
+const pairActionConsumer = (function makePairActionConsumer() {
+  const topic = 'pair-action';
   let consumer: ?Object = null;
-  let messCounter = 0;
 
   return Object.freeze({
     start() {
@@ -181,47 +273,80 @@ const kafkaConsumer = (function makeKafkaConsumer() {
 
       const newConsumer = new KafkaConsumer({
         'enable.auto.commit': false,
-        'group.id': 'pair-stats',
-        'metadata.broker.list': brokerList,
+        'group.id': KAFKA_GROUP_ID,
+        'metadata.broker.list': KAFKA_BROKERS_LIST,
       });
 
       newConsumer.on('ready', () => {
         newConsumer.subscribe([
-          topicName,
+          topic,
         ]);
 
         newConsumer.consume();
       });
 
       newConsumer.on('data', (data) => {
-        const totalMess = data.value.toString();
-        const messages = totalMess.split(',');
-        const messagesLength = messages.length;
-        let iM = 0;
+        const action = data.value.toString();
+        const pureAction = action.trim().toUpperCase();
+        const pairName = data.key;
 
-        for (iM; iM < messagesLength; iM += 1) {
-          messCounter += 1;
-
-          if (messCounter === commitCount) {
-            newConsumer.commit(data);
-            messCounter = 0;
-          }
-
-          const mess = messages[iM];
-          const messParts = mess.split(' ');
-          const pairName = messParts[0];
-          const item = [
-            messParts[1],
-            messParts[2],
-          ];
-
-          if (!tools.has.call(TMP_DATA, pairName)) {
-            TMP_DATA[pairName] = [item];
-            return;
-          }
-
-          TMP_DATA[pairName].push(item);
+        if (pureAction === common.ACTIONS.ADD_PAIR) {
+          addPair(pairName);
+          return;
         }
+
+        if (pureAction === common.ACTIONS.REMOVE_PAIR) {
+          removePair(pairName);
+        }
+      });
+
+      newConsumer.connect();
+      consumer = newConsumer;
+    },
+
+    stop() {
+      if (typeof consumer === 'object' && consumer !== null) {
+        consumer.disconnect();
+        consumer = null;
+      }
+    },
+  });
+}());
+
+const pairPriceSizeConsumer = (function makePairPriceSizeConsumer() {
+  const topic = 'pair-price-size';
+  let consumer: ?Object = null;
+
+  return Object.freeze({
+    start() {
+      this.stop();
+
+      const newConsumer = new KafkaConsumer({
+        'auto.commit.interval.ms': common.STEP_DELAY,
+        'enable.auto.commit': true,
+        'group.id': KAFKA_GROUP_ID,
+        'metadata.broker.list': KAFKA_BROKERS_LIST,
+      });
+
+      newConsumer.on('ready', () => {
+        newConsumer.subscribe([
+          topic,
+        ]);
+
+        newConsumer.consume();
+      });
+
+      newConsumer.on('data', (data) => {
+        const message = data.value.toString();
+        const messParts = message.split(' ');
+        const pairName = data.key;
+
+        if (!tools.has.call(DATA, pairName)) {
+          DATA[pairName] = [messParts];
+          return;
+        }
+
+        DATA[pairName].push(messParts);
       });
 
       newConsumer.connect();
@@ -256,10 +381,10 @@ const messCron = (function makeMessCron() {
     tickTimeoutID = setTimeout(() => {
       sendActionToAllWorkers({
         action: common.ACTIONS.TICK,
-        data: TMP_DATA,
+        data: DATA,
       });
 
-      TMP_DATA = {};
+      DATA = {};
       tick(common.STEP_DELAY);
     }, msDelay);
   };
@@ -279,14 +404,16 @@ const messCron = (function makeMessCron() {
       const needTickDelay = common.STEP_DELAY - (nowTime % common.STEP_DELAY);
       dump(needDumpDelay);
       tick(needTickDelay);
-      kafkaConsumer.start();
+      pairActionConsumer.start();
+      pairPriceSizeConsumer.start();
     },
 
     stop() {
       stopTimeoutIfNeeded(dumpTimeoutID);
       stopTimeoutIfNeeded(tickTimeoutID);
-      kafkaConsumer.stop();
-      TMP_DATA = {};
+      pairActionConsumer.stop();
+      pairPriceSizeConsumer.stop();
+      DATA = {};
     },
   });
 }());
@@ -295,7 +422,7 @@ let initPairs: Array<string> = [];
 let workersDidInit = false;
 let fileStructDidInit = false;
 
-const startWorkersIfNeeded = () => {
+const sWorkersIfNeeded = () => {
   if (workersDidInit && fileStructDidInit) {
     initPairs.forEach(addPair);
     messCron.start();
@@ -305,7 +432,7 @@ const startWorkersIfNeeded = () => {
 createFileAndDirIdNeeded.then(([pairs]) => {
   fileStructDidInit = true;
   initPairs = pairs;
-  startWorkersIfNeeded();
+  sWorkersIfNeeded();
 }).catch((error) => {
   throw error;
 });
@@ -318,9 +445,9 @@ createFileAndDirIdNeeded.then(([pairs]) => {
     this.off(eventName, onlineFunc);
     currCount += 1;
 
-    if (currCount === startWorkersLength) {
+    if (currCount === sWorkersLength) {
       workersDidInit = true;
-      startWorkersIfNeeded();
+      sWorkersIfNeeded();
     }
   }
 

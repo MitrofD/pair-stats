@@ -129,21 +129,24 @@ const tick = (data: { [string]: string[] }) => {
           }
         }
 
-        const firstItem = addData[0];
-        const price = +firstItem[0];
+        const lastItem = addData[addDataLength - 1];
+        const price = +lastItem[0];
 
-        pairDataArr.splice(0, 0, [
+        const addItem = [
           timeNow,
           price,
           addMax,
           addMin,
           addSize,
-        ]);
+        ];
+
+        pairDataArr.splice(0, 0, addItem);
       }
 
       const beforeTime = timeNow - common.DURATION;
       const pairDataArrLength = pairDataArr.length;
 
+      let price = 0;
       let max = 0;
       let min = Number.POSITIVE_INFINITY;
       let size = 0;
@@ -176,13 +179,14 @@ const tick = (data: { [string]: string[] }) => {
         const fItem = pairDataArr[0];
         const lItem = pairDataArr[pairDataArrNewLength - 1];
         const lastPrice = lItem[1];
-        const diff = lastPrice - fItem[1];
+        price = fItem[1];
+        const diff = lastPrice - price;
         change = diff / lastPrice * 100;
       } else {
         min = 0;
       }
 
-      console.log(pair, 'Max:', max, 'Min:', min, 'Size:', size, 'Change:', change);
+      console.log(pair, 'Price:', price, 'Max:', max, 'Min:', min, 'Size:', size, 'Change:', change);
     });
   }
 };
