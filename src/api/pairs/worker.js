@@ -1,11 +1,43 @@
 // @flow
 const fs = require('fs');
+const { Producer } = require('node-rdkafka');
 const common = require('./common');
 
 // Item structure: [time, price, max, min, size]
 
 type Value = number[];
 type Values = Value[];
+
+const topic = 'pair-stats';
+
+const producer = new Producer({
+  dr_cb: false,
+  'metadata.broker.list': common.KAFKA_BROKERS_LIST,
+});
+
+let messHandler: Function = () => {};
+
+producer.on('ready', () => {
+  let messCounter = 0;
+  const maxMessCounter = 60;
+
+  messHandler = (pairName, data) => {
+    messCounter += 1;
+    const mess = JSON.stringify(data);
+    const buffMess = Buffer.from(mess);
+
+    try {
+      producer.produce(topic, -1, buffMess, pairName);
+      // eslint-disable-next-line no-empty
+    } catch (error) {}
+
+    if (messCounter > maxMessCounter) {
+      messCounter = 0;
+    }
+  };
+});
+
+producer.connect();
 
 const has = Object.prototype.hasOwnProperty;
 const VALS: { [string]: Values } = {};
@@ -105,6 +137,7 @@ const tick = (data: { [string]: string[] }) => {
     const pair = availablePairs[i];
     const pairDataArr = VALS[pair];
 
+    // eslint-disable-next-line no-loop-func
     setImmediate(() => {
       const addData: string[] = Array.isArray(data[pair]) ? data[pair] : [];
       const addDataLength = addData.length;
@@ -187,7 +220,13 @@ const tick = (data: { [string]: string[] }) => {
         min = 0;
       }
 
-      console.log(pair, 'Price:', price, 'Max:', max, 'Min:', min, 'Size:', size, 'Change:', change);
+      messHandler(pair, {
+        change,
+        max,
+        min,
+        price,
+        size,
+      });
     });
   }
 };

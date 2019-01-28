@@ -168,7 +168,7 @@ const getNextWorker = () => {
 
 const getPairsArr = () => Object.keys(PAIRS_REL_WORKER);
 
-const addPair = (pair: string, save = true) => {
+const addPair = (pair: string, save = false) => {
   const purePair = pair.trim();
   const existsPairs = getPairsArr();
 
@@ -176,17 +176,16 @@ const addPair = (pair: string, save = true) => {
     return;
   }
 
-  const finish = () => {
-    const worker = getNextWorker();
+  const worker = getNextWorker();
+  PAIRS_REL_WORKER[purePair] = worker;
+  VALS[purePair] = [];
+  WORKER_REL_PAIRS_COUNT[purePair] += 1;
 
+  const finish = () => {
     worker.send({
       pair: purePair,
       action: common.ACTIONS.ADD,
     });
-
-    PAIRS_REL_WORKER[purePair] = worker;
-    VALS[purePair] = [];
-    WORKER_REL_PAIRS_COUNT[purePair] += 1;
   };
 
   if (save) {
@@ -231,33 +230,6 @@ const sendActionToAllWorkers = (data: ProcessAction) => {
   }
 };
 
-const KAFKA_BROKERS_LIST = (function getPureKfkaBrokers() {
-  const {
-    KAFKA_BROKERS,
-  } = process.env;
-
-  const emptyStr = '';
-  const brokerList = typeof KAFKA_BROKERS === 'string' ? KAFKA_BROKERS.replace(' ', emptyStr) : emptyStr;
-  const brokerListArr = brokerList.split(',');
-  const brokerListLength = brokerListArr.length;
-
-  if (brokerListLength === 0) {
-    throw new Error('Settings option "KAFKA_BROKERS" is required');
-  }
-
-  const urlRegExp = /^(https?:\/\/)?(?:[^@/\n]+@)?(?:www\.)?([^:/\n]+)((?::\d+)?)$/i;
-  let i = 0;
-
-  for (i; i < brokerListLength; i += 1) {
-    const broker = brokerListArr[i];
-
-    if (!urlRegExp.test(broker)) {
-      throw new Error('Settings option "KAFKA_BROKERS" is incorrect.(Ex: 127.0.0.1:9092,127.0.0.1:9093)');
-    }
-  }
-
-  return brokerList;
-}());
 const KAFKA_GROUP_ID = 'pair-stats';
 
 const pairActionConsumer = (function makePairActionConsumer() {
@@ -271,7 +243,7 @@ const pairActionConsumer = (function makePairActionConsumer() {
       const newConsumer = new KafkaConsumer({
         'enable.auto.commit': true,
         'group.id': KAFKA_GROUP_ID,
-        'metadata.broker.list': KAFKA_BROKERS_LIST,
+        'metadata.broker.list': common.KAFKA_BROKERS_LIST,
       });
 
       newConsumer.on('ready', () => {
@@ -288,7 +260,7 @@ const pairActionConsumer = (function makePairActionConsumer() {
         const pair = data.key.toString();
 
         if (pureAction === common.ACTIONS.ADD) {
-          addPair(pair);
+          addPair(pair, true);
           return;
         }
 
@@ -322,7 +294,7 @@ const pairPriceSizeConsumer = (function makePairPriceSizeConsumer() {
         'auto.commit.interval.ms': common.STEP_DELAY,
         'enable.auto.commit': true,
         'group.id': KAFKA_GROUP_ID,
-        'metadata.broker.list': KAFKA_BROKERS_LIST,
+        'metadata.broker.list': common.KAFKA_BROKERS_LIST,
       });
 
       newConsumer.on('ready', () => {
