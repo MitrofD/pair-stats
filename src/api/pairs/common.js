@@ -12,10 +12,10 @@ if (pureDuration < pureStepDelay) {
 }
 
 const ACTIONS = {
-  ADD_PAIR: 'ADD_PAIR',
+  ADD: 'ADD',
   DUMP: 'DUMP',
   TICK: 'TICK',
-  REMOVE_PAIR: 'REMOVE_PAIR',
+  REMOVE: 'REMOVE',
 };
 
 const PAIRS_FILE_PATH = `${DATA_PATH}/pairs`;

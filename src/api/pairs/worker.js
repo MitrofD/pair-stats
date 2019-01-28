@@ -1,18 +1,18 @@
 // @flow
 const fs = require('fs');
 const common = require('./common');
-const tools = require('../tools');
 
 // Item structure: [time, price, max, min, size]
 
 type Value = number[];
 type Values = Value[];
 
+const has = Object.prototype.hasOwnProperty;
 const VALS: { [string]: Values } = {};
 
 const getFilePath = (pair: string) => `${common.PAIR_FILES_DIR_PATH}/${pair}`;
 
-const pairExists = (pair: string) => tools.has.call(VALS, pair);
+const pairExists = (pair: string) => has.call(VALS, pair);
 
 const getInitStatsForPair = (pair: string): Promise<Values> => {
   const pathFile = getFilePath(pair);
@@ -41,23 +41,24 @@ const getInitStatsForPair = (pair: string): Promise<Values> => {
 };
 
 const addPair = (pair: string) => {
-  const purePair = pair.trim();
-
-  if (pairExists(purePair)) {
+  if (pairExists(pair)) {
     return;
   }
 
-  getInitStatsForPair(purePair).then((stats) => {
-    VALS[purePair] = stats;
-  }).catch(ErrorHandler);
+  getInitStatsForPair(pair).then((stats) => {
+    VALS[pair] = stats;
+  }).catch(globErrorHandler);
 };
 
 const removePair = (pair: string) => {
-  const purePair = pair.trim();
-  delete VALS[purePair];
+  delete VALS[pair];
 
   const filePath = getFilePath(pair);
-  fs.unlink(filePath, ErrorHandler);
+  fs.unlink(filePath, (error) => {
+    if (error) {
+      globErrorHandler(error);
+    }
+  });
 };
 
 const savePair = (pair: string): Promise<void> => {
@@ -90,7 +91,7 @@ const dump = () => {
 
   for (i; i < pLength; i += 1) {
     const pair = availablePairs[i];
-    savePair(pair).catch(ErrorHandler);
+    savePair(pair).catch(globErrorHandler);
   }
 };
 
@@ -180,7 +181,7 @@ const tick = (data: { [string]: string[] }) => {
         const lItem = pairDataArr[pairDataArrNewLength - 1];
         const lastPrice = lItem[1];
         price = fItem[1];
-        const diff = lastPrice - price;
+        const diff = price - lastPrice;
         change = diff / lastPrice * 100;
       } else {
         min = 0;
@@ -199,17 +200,17 @@ process.on('message', (function makeMessHandler() {
 
     [common.ACTIONS.DUMP]: dump,
 
-    [common.ACTIONS.ADD_PAIR](actionData: Object) {
+    [common.ACTIONS.ADD](actionData: Object) {
       addPair(actionData.pair);
     },
 
-    [common.ACTIONS.REMOVE_PAIR](actionData: Object) {
+    [common.ACTIONS.REMOVE](actionData: Object) {
       removePair(actionData.pair);
     },
   };
 
   return (data) => {
-    if (tools.has.call(actions, data.action)) {
+    if (has.call(actions, data.action)) {
       actions[data.action](data);
     }
   };

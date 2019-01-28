@@ -4,8 +4,9 @@ require('./config');
 
 const appErrorHandler = (error) => {
   if (IS_DEV_MODE) {
+    console.log(error);
     // eslint-disable-next-line no-console
-    console.log(`🐞  \x1b[31m[APP ERROR] ${error.message}\x1b[37m`);
+    // console.log(`🐞  \x1b[31m[APP ERROR] ${error.message}\x1b[37m`);
     process.exit(0);
     return;
   }

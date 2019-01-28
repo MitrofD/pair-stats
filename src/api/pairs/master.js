@@ -3,13 +3,14 @@ const cluster = require('cluster');
 const { KafkaConsumer } = require('node-rdkafka');
 const fs = require('fs');
 const common = require('./common');
-const tools = require('../tools');
 
 type ProcessAction = Object & {
   action: string,
 };
 
-let DATA: { [string]: string[] } = {};
+const has = Object.prototype.hasOwnProperty;
+
+let VALS: { [string]: string[] } = {};
 const WORKERS_ARR: Object[] = [];
 const PAIRS_REL_WORKER: { [string]: Object } = {};
 const WORKER_REL_PAIRS_COUNT: { [string]: number } = {};
@@ -29,6 +30,40 @@ for (sWI; sWI < sWorkersLength; sWI += 1) {
   WORKERS_ARR.push(worker);
   WORKER_REL_PAIRS_COUNT[workerId] = 0;
 }
+
+const createPairFilesDir = (): Promise<void> => {
+  const createPromise = new Promise((resolve, reject) => {
+    fs.stat(common.PAIR_FILES_DIR_PATH, (error, stat) => {
+      const mkDirCallback: Function = (mDError) => {
+        if (mDError) {
+          reject(mDError);
+          return;
+        }
+
+        resolve();
+      };
+
+      if (error) {
+        if (error.code === 'ENOENT') {
+          fs.mkdir(common.PAIR_FILES_DIR_PATH, mkDirCallback);
+          return;
+        }
+
+        reject(error);
+        return;
+      }
+
+      if (!stat.isDirectory()) {
+        fs.mkdir(common.PAIR_FILES_DIR_PATH, mkDirCallback);
+        return;
+      }
+
+      resolve();
+    });
+  });
+
+  return createPromise;
+};
 
 const getPairs = (): Promise<string[]> => {
   const readFile = (clbck: Function) => {
@@ -79,30 +114,11 @@ const getPairs = (): Promise<string[]> => {
   return getPromise;
 };
 
-const createPairFilesDir = (): Promise<void> => {
-  const createPromise = new Promise((resolve, reject) => {
-    fs.stat(common.PAIR_FILES_DIR_PATH, (error, stat) => {
-      const mkDirCallback: Function = (mDError) => {
-        if (mDError) {
-          reject(mDError);
-          return;
-        }
-
-        resolve();
-      };
-
+const savePairs = (pairsArr: string[]): Promise<void> => {
+  const savePromise = new Promise((resolve, reject) => {
+    fs.writeFile(common.PAIRS_FILE_PATH, pairsArr.join('\n'), (error) => {
       if (error) {
-        if (error.code === 'ENOENT') {
-          fs.mkdir(common.PAIR_FILES_DIR_PATH, mkDirCallback);
-          return;
-        }
-
         reject(error);
-        return;
-      }
-
-      if (!stat.isDirectory()) {
-        fs.mkdir(common.PAIR_FILES_DIR_PATH, mkDirCallback);
         return;
       }
 
@@ -110,7 +126,7 @@ const createPairFilesDir = (): Promise<void> => {
     });
   });
 
-  return createPromise;
+  return savePromise;
 };
 
 const getPairsPromise = getPairs();
@@ -119,36 +135,6 @@ const createFileAndDirIdNeeded = Promise.all([
   getPairsPromise,
   createPairFilesDirPromise,
 ]);
-
-/*
-const workers = (function makeWorker() {
-  const resetIdx = 0;
-  const tmpWorkers: Object[] = [];
-  let currIdx = resetIdx;
-
-  return Object.freeze({
-    get() {
-      if (tmpWorkers.length > 0) {
-        return tmpWorkers.shift();
-      }
-
-      let worker = WORKERS_ARR[currIdx];
-
-      if (!worker) {
-        currIdx = resetIdx;
-        worker = WORKERS_ARR[resetIdx];
-      }
-
-      currIdx += 1;
-      return worker;
-    },
-
-    toTMP(worker: Object) {
-      tmpWorkers.push(worker);
-    },
-  });
-}());
-*/
 
 const getNextWorker = () => {
   const workerIds = Object.keys(cluster.workers);
@@ -161,7 +147,7 @@ const getNextWorker = () => {
   for (i; i < workerLength; i += 1) {
     const workerId = workerIds[i];
 
-    if (!tools.has.call(WORKER_REL_PAIRS_COUNT, workerId)) {
+    if (!has.call(WORKER_REL_PAIRS_COUNT, workerId)) {
       continue;
     }
 
@@ -180,49 +166,59 @@ const getNextWorker = () => {
   return cluster.workers[id];
 };
 
-/*
-const getNextWorker = (function genGetNextWorker() {
-  const resetIdx = 0;
-  let currWorkerIdx = resetIdx;
+const getPairsArr = () => Object.keys(PAIRS_REL_WORKER);
 
-  return (): Object => {
-    let worker = WORKERS_ARR[currWorkerIdx];
+const addPair = (pair: string, save = true) => {
+  const purePair = pair.trim();
+  const existsPairs = getPairsArr();
 
-    if (!worker) {
-      currWorkerIdx = resetIdx;
-      worker = WORKERS_ARR[resetIdx];
-    }
-
-    currWorkerIdx += 1;
-    return worker;
-  };
-}());
-*/
-
-const addPair = (pair: string) => {
-  const worker = getNextWorker();
-  PAIRS_REL_WORKER[pair] = worker;
-  WORKER_REL_PAIRS_COUNT[pair] += 1;
-
-  worker.send({
-    pair,
-    action: common.ACTIONS.ADD_PAIR,
-  });
-};
-
-const removePair = (pair: string) => {
-  if (!tools.has.call(PAIRS_REL_WORKER, pair)) {
+  if (existsPairs.includes(purePair) || purePair.length === 0) {
     return;
   }
 
-  const worker = PAIRS_REL_WORKER[pair];
-  delete PAIRS_REL_WORKER[pair];
-  WORKER_REL_PAIRS_COUNT[pair] -= 1;
+  const finish = () => {
+    const worker = getNextWorker();
 
-  worker.send({
-    pair,
-    action: common.ACTIONS.REMOVE_PAIR,
-  });
+    worker.send({
+      pair: purePair,
+      action: common.ACTIONS.ADD,
+    });
+
+    PAIRS_REL_WORKER[purePair] = worker;
+    VALS[purePair] = [];
+    WORKER_REL_PAIRS_COUNT[purePair] += 1;
+  };
+
+  if (save) {
+    existsPairs.push(purePair);
+    savePairs(existsPairs).then(finish).catch(globErrorHandler);
+  } else {
+    finish();
+  }
+};
+
+const removePair = (pair: string) => {
+  const purePair = pair.trim();
+  const existsPairs = getPairsArr();
+  const pairIndex = existsPairs.indexOf(purePair);
+
+  if (pairIndex === -1 || purePair.length === 0) {
+    return;
+  }
+
+  existsPairs.splice(pairIndex, 1);
+  const worker = PAIRS_REL_WORKER[purePair];
+
+  savePairs(existsPairs).then(() => {
+    worker.send({
+      pair: purePair,
+      action: common.ACTIONS.REMOVE,
+    });
+
+    delete PAIRS_REL_WORKER[purePair];
+    delete VALS[purePair];
+    WORKER_REL_PAIRS_COUNT[purePair] -= 1;
+  }).catch(globErrorHandler);
 };
 
 const sendActionToAllWorkers = (data: ProcessAction) => {
@@ -249,12 +245,13 @@ const KAFKA_BROKERS_LIST = (function getPureKfkaBrokers() {
     throw new Error('Settings option "KAFKA_BROKERS" is required');
   }
 
+  const urlRegExp = /^(https?:\/\/)?(?:[^@/\n]+@)?(?:www\.)?([^:/\n]+)((?::\d+)?)$/i;
   let i = 0;
 
   for (i; i < brokerListLength; i += 1) {
     const broker = brokerListArr[i];
 
-    if (!tools.urlRegExp.test(broker)) {
+    if (!urlRegExp.test(broker)) {
       throw new Error('Settings option "KAFKA_BROKERS" is incorrect.(Ex: 127.0.0.1:9092,127.0.0.1:9093)');
     }
   }
@@ -272,7 +269,7 @@ const pairActionConsumer = (function makePairActionConsumer() {
       this.stop();
 
       const newConsumer = new KafkaConsumer({
-        'enable.auto.commit': false,
+        'enable.auto.commit': true,
         'group.id': KAFKA_GROUP_ID,
         'metadata.broker.list': KAFKA_BROKERS_LIST,
       });
@@ -288,15 +285,15 @@ const pairActionConsumer = (function makePairActionConsumer() {
       newConsumer.on('data', (data) => {
         const action = data.value.toString();
         const pureAction = action.trim().toUpperCase();
-        const pairName = data.key;
+        const pair = data.key.toString();
 
-        if (pureAction === common.ACTIONS.ADD_PAIR) {
-          addPair(pairName);
+        if (pureAction === common.ACTIONS.ADD) {
+          addPair(pair);
           return;
         }
 
-        if (pureAction === common.ACTIONS.REMOVE_PAIR) {
-          removePair(pairName);
+        if (pureAction === common.ACTIONS.REMOVE) {
+          removePair(pair);
         }
       });
 
@@ -337,16 +334,15 @@ const pairPriceSizeConsumer = (function makePairPriceSizeConsumer() {
       });
 
       newConsumer.on('data', (data) => {
-        const message = data.value.toString();
-        const messParts = message.split(' ');
         const pairName = data.key;
 
-        if (!tools.has.call(DATA, pairName)) {
-          DATA[pairName] = [messParts];
+        if (!has.call(VALS, pairName)) {
           return;
         }
 
-        DATA[pairName].push(messParts);
+        const message = data.value.toString();
+        const messParts = message.split(' ');
+        VALS[pairName].push(messParts);
       });
 
       newConsumer.connect();
@@ -363,7 +359,7 @@ const pairPriceSizeConsumer = (function makePairPriceSizeConsumer() {
 }());
 
 const messCron = (function makeMessCron() {
-  const dumpStep = 30000;
+  const dumpStep = 10000;
   let dumpTimeoutID: ?TimeoutID = null;
   let tickTimeoutID: ?TimeoutID = null;
 
@@ -381,10 +377,19 @@ const messCron = (function makeMessCron() {
     tickTimeoutID = setTimeout(() => {
       sendActionToAllWorkers({
         action: common.ACTIONS.TICK,
-        data: DATA,
+        data: VALS,
       });
 
-      DATA = {};
+      VALS = {};
+      const pairsArr = getPairsArr();
+      const pairsArrLength = pairsArr.length;
+      let i = 0;
+
+      for (i; i < pairsArrLength; i += 1) {
+        const pair = pairsArr[i];
+        VALS[pair] = [];
+      }
+
       tick(common.STEP_DELAY);
     }, msDelay);
   };
@@ -413,7 +418,7 @@ const messCron = (function makeMessCron() {
       stopTimeoutIfNeeded(tickTimeoutID);
       pairActionConsumer.stop();
       pairPriceSizeConsumer.stop();
-      DATA = {};
+      VALS = {};
     },
   });
 }());

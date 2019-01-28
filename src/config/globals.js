@@ -8,12 +8,12 @@ const envs = process.env;
 
 global.IS_DEV_MODE = false;
 
-global.ErrorHandler = () => {};
+global.globErrorHandler = () => {};
 
 if (envs.NODE_ENV === 'development') {
   IS_DEV_MODE = true;
 
-  ErrorHandler = (error: Error) => {
+  globErrorHandler = (error: Error) => {
     throw error;
   };
 }
