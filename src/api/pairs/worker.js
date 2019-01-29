@@ -32,6 +32,7 @@ producer.on('ready', () => {
     } catch (error) {}
 
     if (messCounter > maxMessCounter) {
+      producer.poll();
       messCounter = 0;
     }
   };
