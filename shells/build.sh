@@ -11,18 +11,12 @@ clean
 export NODE_ENV=production
 export NODE_DEBUG=false
 npx babel $sourceDir --out-dir $buildDir --copy-files || exit 1
-
 sed -e '/"scripts"/,/}/d; /"devDependencies"/,/}/d' $packageFile > $buildDir/$packageFile
+rm -r -f $buildDir/data
 
-while [ -n "$1" ]
-do
-  case "$1" in
-    -m)
-      cp -R $buildDir/* $2
-      clean
-    ;;
-  esac
-  shift
-done
+if hash tar 2>/dev/null
+then
+  tar -czf $buildDir.tar.gz $buildDir/ && clean
+fi
 
 exit 0

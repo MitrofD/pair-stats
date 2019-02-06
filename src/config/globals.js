@@ -8,18 +8,19 @@ const envs = process.env;
 
 global.IS_DEV_MODE = false;
 
-global.globErrorHandler = () => {};
+global.globPrintError = () => {};
 
 if (envs.NODE_ENV === 'development') {
   IS_DEV_MODE = true;
 
-  globErrorHandler = (error: Error) => {
+  globPrintError = (error: Error) => {
     throw error;
   };
 }
 
-global.IS_MASTER = cluster.isMaster;
 global.ROOT_PATH = path.dirname(require.main.filename);
+
+/*
 global.DATA_PATH = `${ROOT_PATH}/${dataDirName}`;
 
 if (IS_MASTER) {
@@ -37,3 +38,4 @@ if (IS_MASTER) {
     fs.mkdirSync(DATA_PATH);
   }
 }
+*/

@@ -1,10 +1,12 @@
-declare var DATA_PATH: string;
 declare var IS_DEV_MODE: boolean;
 declare var IS_MASTER: boolean;
+declare var OPTIONS: Object;
 declare var ROOT_PATH: string;
-declare var globErrorHandler: Function;
+declare var globPrintError: Function;
+declare var showError: Function;
+declare var showSuccessMessage: Function;
+declare var whenSystemReady: (Function) => void;
 
-declare type ClusterMessage = {
+declare type ClusterMessage = Object & {
   action: string,
-  data: any,
 };

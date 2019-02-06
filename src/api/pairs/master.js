@@ -4,36 +4,11 @@ const { KafkaConsumer } = require('node-rdkafka');
 const fs = require('fs');
 const common = require('./common');
 
-type ProcessAction = Object & {
-  action: string,
-};
-
 const has = Object.prototype.hasOwnProperty;
-
-let VALS: { [string]: string[] } = {};
-const WORKERS_ARR: Object[] = [];
-const PAIRS_REL_WORKER: { [string]: Object } = {};
-const WORKER_REL_PAIRS_COUNT: { [string]: number } = {};
-
-const sWorkerIds = Object.keys(cluster.workers);
-const sWorkersLength = sWorkerIds.length;
-
-if (sWorkersLength === 0) {
-  throw new Error('Not found workers');
-}
-
-let sWI = 0;
-
-for (sWI; sWI < sWorkersLength; sWI += 1) {
-  const workerId = sWorkerIds[sWI];
-  const worker = cluster.workers[workerId];
-  WORKERS_ARR.push(worker);
-  WORKER_REL_PAIRS_COUNT[workerId] = 0;
-}
 
 const createPairFilesDir = (): Promise<void> => {
   const createPromise = new Promise((resolve, reject) => {
-    fs.stat(common.PAIR_FILES_DIR_PATH, (error, stat) => {
+    fs.stat(common.PAIR_DUMPS_DIR_PATH, (error, stat) => {
       const mkDirCallback: Function = (mDError) => {
         if (mDError) {
           reject(mDError);
@@ -45,7 +20,7 @@ const createPairFilesDir = (): Promise<void> => {
 
       if (error) {
         if (error.code === 'ENOENT') {
-          fs.mkdir(common.PAIR_FILES_DIR_PATH, mkDirCallback);
+          fs.mkdir(common.PAIR_DUMPS_DIR_PATH, mkDirCallback);
           return;
         }
 
@@ -54,7 +29,7 @@ const createPairFilesDir = (): Promise<void> => {
       }
 
       if (!stat.isDirectory()) {
-        fs.mkdir(common.PAIR_FILES_DIR_PATH, mkDirCallback);
+        fs.mkdir(common.PAIR_DUMPS_DIR_PATH, mkDirCallback);
         return;
       }
 
@@ -129,36 +104,46 @@ const savePairs = (pairsArr: string[]): Promise<void> => {
   return savePromise;
 };
 
-const getPairsPromise = getPairs();
-const createPairFilesDirPromise = createPairFilesDir();
-const createFileAndDirIdNeeded = Promise.all([
-  getPairsPromise,
-  createPairFilesDirPromise,
-]);
+const KAFKA_GROUP_ID = 'pair-stats';
+const PAIR_REL_WORKER_OBJ: { [string]: Object } = {};
+const WORKER_REL_PAIR_OBJ: { [string]: string[] } = {};
+const WORKER_REL_PAIRS_COUNT: { [string]: number } = {};
+let VALS_OBJ: { [string]: string[] } = {};
+
+const getPairsOfWorker = (workerId: string) => {
+  let returnArr: string[] = [];
+  const pairsOfWorker = WORKER_REL_PAIR_OBJ[workerId];
+
+  if (Array.isArray(pairsOfWorker)) {
+    returnArr = pairsOfWorker;
+  }
+
+  return returnArr;
+};
 
 const getNextWorker = () => {
-  const workerIds = Object.keys(cluster.workers);
-  const workerLength = workerIds.length;
+  const workerIDs = Object.keys(cluster.workers);
+  const workerLength = workerIDs.length;
 
   let minCount = Number.POSITIVE_INFINITY;
-  let id = workerIds[0];
+  let id = workerIDs[0];
   let i = 0;
 
-  for (i; i < workerLength; i += 1) {
-    const workerId = workerIds[i];
+  for (; i < workerLength; i += 1) {
+    const workerID = workerIDs[i];
 
-    if (!has.call(WORKER_REL_PAIRS_COUNT, workerId)) {
+    if (!has.call(WORKER_REL_PAIRS_COUNT, workerID)) {
       continue;
     }
 
-    const pairsCount = WORKER_REL_PAIRS_COUNT[workerId];
+    const pairsCount = WORKER_REL_PAIRS_COUNT[workerID];
 
     if (pairsCount === 0) {
-      return cluster.workers[workerId];
+      return cluster.workers[workerID];
     }
 
-    if (minCount < pairsCount) {
-      id = workerId;
+    if (minCount > pairsCount) {
+      id = workerID;
       minCount = pairsCount;
     }
   }
@@ -166,7 +151,7 @@ const getNextWorker = () => {
   return cluster.workers[id];
 };
 
-const getPairsArr = () => Object.keys(PAIRS_REL_WORKER);
+const getPairsArr = () => Object.keys(PAIR_REL_WORKER_OBJ);
 
 const addPair = (pair: string, save = false) => {
   const purePair = pair.trim();
@@ -177,9 +162,14 @@ const addPair = (pair: string, save = false) => {
   }
 
   const worker = getNextWorker();
-  PAIRS_REL_WORKER[purePair] = worker;
-  VALS[purePair] = [];
-  WORKER_REL_PAIRS_COUNT[purePair] += 1;
+  const workerID = worker.id;
+  const workerPairs = getPairsOfWorker(workerID);
+  workerPairs.push(purePair);
+
+  WORKER_REL_PAIR_OBJ[workerID] = workerPairs;
+  PAIR_REL_WORKER_OBJ[purePair] = worker;
+  VALS_OBJ[purePair] = [];
+  WORKER_REL_PAIRS_COUNT[workerID] += 1;
 
   const finish = () => {
     worker.send({
@@ -190,7 +180,7 @@ const addPair = (pair: string, save = false) => {
 
   if (save) {
     existsPairs.push(purePair);
-    savePairs(existsPairs).then(finish).catch(globErrorHandler);
+    savePairs(existsPairs).then(finish).catch(globPrintError);
   } else {
     finish();
   }
@@ -206,7 +196,7 @@ const removePair = (pair: string) => {
   }
 
   existsPairs.splice(pairIndex, 1);
-  const worker = PAIRS_REL_WORKER[purePair];
+  const worker = PAIR_REL_WORKER_OBJ[purePair];
 
   savePairs(existsPairs).then(() => {
     worker.send({
@@ -214,23 +204,32 @@ const removePair = (pair: string) => {
       action: common.ACTIONS.REMOVE,
     });
 
-    delete PAIRS_REL_WORKER[purePair];
-    delete VALS[purePair];
-    WORKER_REL_PAIRS_COUNT[purePair] -= 1;
-  }).catch(globErrorHandler);
+    const workerID = worker.id;
+    const workerPairs = getPairsOfWorker(workerID);
+    const workerPairIdx = workerPairs.indexOf(purePair);
+
+    if (workerPairIdx !== -1) {
+      workerPairs.splice(workerPairIdx, 1);
+    }
+
+    WORKER_REL_PAIR_OBJ[workerID] = workerPairs;
+    delete PAIR_REL_WORKER_OBJ[purePair];
+    delete VALS_OBJ[purePair];
+    WORKER_REL_PAIRS_COUNT[workerID] -= 1;
+  }).catch(globPrintError);
 };
 
-const sendActionToAllWorkers = (data: ProcessAction) => {
+const sendActionToAllWorkers = (data: ClusterMessage) => {
+  const workerIDs = Object.keys(cluster.workers);
+  const workersLength = workerIDs.length;
   let i = 0;
-  const workersLength = WORKERS_ARR.length;
 
-  for (i; i < workersLength; i += 1) {
-    const worker = WORKERS_ARR[i];
+  for (; i < workersLength; i += 1) {
+    const workerID = workerIDs[i];
+    const worker = cluster.workers[workerID];
     worker.send(data);
   }
 };
-
-const KAFKA_GROUP_ID = 'pair-stats';
 
 const pairActionConsumer = (function makePairActionConsumer() {
   const topic = 'pair-action';
@@ -243,7 +242,7 @@ const pairActionConsumer = (function makePairActionConsumer() {
       const newConsumer = new KafkaConsumer({
         'enable.auto.commit': true,
         'group.id': KAFKA_GROUP_ID,
-        'metadata.broker.list': common.KAFKA_BROKERS_LIST,
+        'metadata.broker.list': OPTIONS.KAFKA_BROKERS,
       });
 
       newConsumer.on('ready', () => {
@@ -291,10 +290,10 @@ const pairPriceSizeConsumer = (function makePairPriceSizeConsumer() {
       this.stop();
 
       const newConsumer = new KafkaConsumer({
-        'auto.commit.interval.ms': common.STEP_DELAY,
+        'auto.commit.interval.ms': OPTIONS.STEP_DELAY,
         'enable.auto.commit': true,
         'group.id': KAFKA_GROUP_ID,
-        'metadata.broker.list': common.KAFKA_BROKERS_LIST,
+        'metadata.broker.list': OPTIONS.KAFKA_BROKERS,
       });
 
       newConsumer.on('ready', () => {
@@ -308,13 +307,13 @@ const pairPriceSizeConsumer = (function makePairPriceSizeConsumer() {
       newConsumer.on('data', (data) => {
         const pairName = data.key;
 
-        if (!has.call(VALS, pairName)) {
+        if (!has.call(VALS_OBJ, pairName)) {
           return;
         }
 
         const message = data.value.toString();
         const messParts = message.split(' ');
-        VALS[pairName].push(messParts);
+        VALS_OBJ[pairName].push(messParts);
       });
 
       newConsumer.connect();
@@ -331,7 +330,7 @@ const pairPriceSizeConsumer = (function makePairPriceSizeConsumer() {
 }());
 
 const messCron = (function makeMessCron() {
-  const dumpStep = 10000;
+  const dumpStep = 15000;
   let dumpTimeoutID: ?TimeoutID = null;
   let tickTimeoutID: ?TimeoutID = null;
 
@@ -349,20 +348,20 @@ const messCron = (function makeMessCron() {
     tickTimeoutID = setTimeout(() => {
       sendActionToAllWorkers({
         action: common.ACTIONS.TICK,
-        data: VALS,
+        data: VALS_OBJ,
       });
 
-      VALS = {};
+      VALS_OBJ = {};
       const pairsArr = getPairsArr();
       const pairsArrLength = pairsArr.length;
       let i = 0;
 
-      for (i; i < pairsArrLength; i += 1) {
+      for (; i < pairsArrLength; i += 1) {
         const pair = pairsArr[i];
-        VALS[pair] = [];
+        VALS_OBJ[pair] = [];
       }
 
-      tick(common.STEP_DELAY);
+      tick(OPTIONS.STEP_DELAY);
     }, msDelay);
   };
 
@@ -378,7 +377,7 @@ const messCron = (function makeMessCron() {
     start() {
       const nowTime = Date.now();
       const needDumpDelay = dumpStep - (nowTime % dumpStep);
-      const needTickDelay = common.STEP_DELAY - (nowTime % common.STEP_DELAY);
+      const needTickDelay = OPTIONS.STEP_DELAY - (nowTime % OPTIONS.STEP_DELAY);
       dump(needDumpDelay);
       tick(needTickDelay);
       pairActionConsumer.start();
@@ -390,49 +389,74 @@ const messCron = (function makeMessCron() {
       stopTimeoutIfNeeded(tickTimeoutID);
       pairActionConsumer.stop();
       pairPriceSizeConsumer.stop();
-      VALS = {};
+      VALS_OBJ = {};
     },
   });
 }());
 
-let initPairs: Array<string> = [];
-let workersDidInit = false;
-let fileStructDidInit = false;
+(function init() {
+  const workerIDs = Object.keys(cluster.workers);
+  const workersLength = workerIDs.length;
+  let wI = 0;
 
-const sWorkersIfNeeded = () => {
-  if (workersDidInit && fileStructDidInit) {
-    initPairs.forEach(addPair);
-    messCron.start();
+  for (; wI < workersLength; wI += 1) {
+    const workerID = workerIDs[wI];
+    WORKER_REL_PAIRS_COUNT[workerID] = 0;
   }
-};
 
-createFileAndDirIdNeeded.then(([pairs]) => {
-  fileStructDidInit = true;
-  initPairs = pairs;
-  sWorkersIfNeeded();
-}).catch((error) => {
-  throw error;
-});
+  cluster.on('change', (worker: Object, newWorker: Object) => {
+    const workerID = worker.id;
+    const newWorkerID = newWorker.id;
+    const workerPairs = getPairsOfWorker(workerID);
+    const workerPairsLength = workerPairs.length;
+    delete WORKER_REL_PAIRS_COUNT[workerID];
+    delete WORKER_REL_PAIR_OBJ[workerID];
+    WORKER_REL_PAIRS_COUNT[newWorkerID] = workerPairsLength;
+    WORKER_REL_PAIR_OBJ[newWorkerID] = workerPairs;
+    let pI = 0;
 
-(function initWorkers() {
-  let currCount = 0;
-  const eventName = 'online';
+    for (; pI < workerPairsLength; pI += 1) {
+      const pair = workerPairs[pI];
+      PAIR_REL_WORKER_OBJ[pair] = newWorker;
 
-  function onlineFunc() {
-    this.off(eventName, onlineFunc);
-    currCount += 1;
-
-    if (currCount === sWorkersLength) {
-      workersDidInit = true;
-      sWorkersIfNeeded();
+      newWorker.send({
+        pair,
+        action: common.ACTIONS.ADD,
+      });
     }
-  }
+  });
 
-  let i = 0;
-  const workersLength = WORKERS_ARR.length;
+  const initPromise = Promise.all([
+    getPairs(),
+    createPairFilesDir(),
+  ]);
 
-  for (i; i < workersLength; i += 1) {
-    const worker = WORKERS_ARR[i];
-    worker.on(eventName, onlineFunc);
-  }
+  let systemIsReady = false;
+  let startWithPairs: ?Array<string> = null;
+
+  const tryStart = () => {
+    if (startWithPairs && systemIsReady) {
+      const availablePairsLength = startWithPairs.length;
+      let pI = 0;
+
+      for (; pI < availablePairsLength; pI += 1) {
+        const pair = startWithPairs[pI];
+        addPair(pair);
+      }
+
+      messCron.start();
+    }
+  };
+
+  initPromise.then(([pairs]) => {
+    startWithPairs = pairs;
+    tryStart();
+  }).catch((error) => {
+    throw error;
+  });
+
+  whenSystemReady(() => {
+    systemIsReady = true;
+    tryStart();
+  });
 }());

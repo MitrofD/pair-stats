@@ -1,4 +1,5 @@
 // @flow
+const cluster = require('cluster');
 const fs = require('fs');
 const { Producer } = require('node-rdkafka');
 const common = require('./common');
@@ -12,18 +13,17 @@ const topic = 'pair-stats';
 
 const producer = new Producer({
   dr_cb: false,
-  'metadata.broker.list': common.KAFKA_BROKERS_LIST,
+  'metadata.broker.list': OPTIONS.KAFKA_BROKERS,
 });
 
 let messHandler: Function = () => {};
 
 producer.on('ready', () => {
+  const maxMessCounter = 6000;
   let messCounter = 0;
-  const maxMessCounter = 60;
 
-  messHandler = (pairName, data) => {
+  messHandler = (pairName, mess) => {
     messCounter += 1;
-    const mess = JSON.stringify(data);
     const buffMess = Buffer.from(mess);
 
     try {
@@ -41,17 +41,17 @@ producer.on('ready', () => {
 producer.connect();
 
 const has = Object.prototype.hasOwnProperty;
-const VALS: { [string]: Values } = {};
+const VALS_OBJ: { [string]: Values } = {};
 
-const getFilePath = (pair: string) => `${common.PAIR_FILES_DIR_PATH}/${pair}`;
+const getFilePath = (pair: string) => `${common.PAIR_DUMPS_DIR_PATH}/${pair}.dmp`;
 
-const pairExists = (pair: string) => has.call(VALS, pair);
+const pairExists = (pair: string) => has.call(VALS_OBJ, pair);
 
 const getInitStatsForPair = (pair: string): Promise<Values> => {
-  const pathFile = getFilePath(pair);
+  const filePath = getFilePath(pair);
 
   const getPromise = new Promise((resolve) => {
-    fs.readFile(pathFile, (error, data) => {
+    fs.readFile(filePath, (error, data) => {
       let rArr: Values = [];
 
       if (data) {
@@ -79,17 +79,17 @@ const addPair = (pair: string) => {
   }
 
   getInitStatsForPair(pair).then((stats) => {
-    VALS[pair] = stats;
-  }).catch(globErrorHandler);
+    VALS_OBJ[pair] = stats;
+  }).catch(globPrintError);
 };
 
 const removePair = (pair: string) => {
-  delete VALS[pair];
+  delete VALS_OBJ[pair];
 
   const filePath = getFilePath(pair);
   fs.unlink(filePath, (error) => {
     if (error) {
-      globErrorHandler(error);
+      globPrintError(error);
     }
   });
 };
@@ -101,7 +101,7 @@ const savePair = (pair: string): Promise<void> => {
   }
 
   const savePath = getFilePath(pair);
-  const saveDataStr = JSON.stringify(VALS[pair]);
+  const saveDataStr = JSON.stringify(VALS_OBJ[pair]);
 
   const savePromise = new Promise((resolve, reject) => {
     fs.writeFile(savePath, saveDataStr, (error) => {
@@ -118,25 +118,25 @@ const savePair = (pair: string): Promise<void> => {
 };
 
 const dump = () => {
-  const availablePairs = Object.keys(VALS);
+  const availablePairs = Object.keys(VALS_OBJ);
   const pLength = availablePairs.length;
   let i = 0;
 
-  for (i; i < pLength; i += 1) {
+  for (; i < pLength; i += 1) {
     const pair = availablePairs[i];
-    savePair(pair).catch(globErrorHandler);
+    savePair(pair).catch(globPrintError);
   }
 };
 
 const tick = (data: { [string]: string[] }) => {
   const timeNow = Date.now();
-  const availablePairs = Object.keys(VALS);
+  const availablePairs = Object.keys(VALS_OBJ);
   const pLength = availablePairs.length;
   let i = 0;
 
-  for (i; i < pLength; i += 1) {
+  for (; i < pLength; i += 1) {
     const pair = availablePairs[i];
-    const pairDataArr = VALS[pair];
+    const pairDataArr = VALS_OBJ[pair];
 
     // eslint-disable-next-line no-loop-func
     setImmediate(() => {
@@ -149,7 +149,7 @@ const tick = (data: { [string]: string[] }) => {
         let addMin = Number.POSITIVE_INFINITY;
         let aI = 0;
 
-        for (aI; aI < addDataLength; aI += 1) {
+        for (; aI < addDataLength; aI += 1) {
           const addDataItem = addData[aI];
           const price = +addDataItem[0];
           const size = +addDataItem[1];
@@ -178,7 +178,7 @@ const tick = (data: { [string]: string[] }) => {
         pairDataArr.splice(0, 0, addItem);
       }
 
-      const beforeTime = timeNow - common.DURATION;
+      const beforeTime = timeNow - OPTIONS.DURATION;
       const pairDataArrLength = pairDataArr.length;
 
       let price = 0;
@@ -187,7 +187,7 @@ const tick = (data: { [string]: string[] }) => {
       let size = 0;
       let tI = 0;
 
-      for (tI; tI < pairDataArrLength; tI += 1) {
+      for (; tI < pairDataArrLength; tI += 1) {
         const pairDataItem = pairDataArr[tI];
 
         if (pairDataItem[0] < beforeTime) {
@@ -221,37 +221,41 @@ const tick = (data: { [string]: string[] }) => {
         min = 0;
       }
 
-      messHandler(pair, {
-        change,
-        max,
-        min,
-        price,
-        size,
-      });
+      messHandler(pair, `${price} ${max} ${min} ${size} ${change} ${timeNow}`);
     });
   }
 };
 
-process.on('message', (function makeMessHandler() {
-  const actions = {
-    [common.ACTIONS.TICK](actionData: Object) {
-      tick(actionData.data);
-    },
+const actions = {
+  [common.ACTIONS.TICK](actionData: Object) {
+    tick(actionData.data);
+  },
 
-    [common.ACTIONS.DUMP]: dump,
+  [common.ACTIONS.DUMP]() {
+    setImmediate(dump);
+  },
 
-    [common.ACTIONS.ADD](actionData: Object) {
-      addPair(actionData.pair);
-    },
+  [common.ACTIONS.ADD](actionData: Object) {
+    addPair(actionData.pair);
+  },
 
-    [common.ACTIONS.REMOVE](actionData: Object) {
-      removePair(actionData.pair);
-    },
-  };
+  [common.ACTIONS.REMOVE](actionData: Object) {
+    removePair(actionData.pair);
+  },
+};
 
-  return (data) => {
-    if (has.call(actions, data.action)) {
-      actions[data.action](data);
-    }
-  };
-}()));
+process.on('message', (data: ClusterMessage) => {
+  const actionHandler = actions[data.action];
+
+  if (typeof actionHandler === 'function') {
+    actionHandler(data);
+  }
+});
+
+/*
+if (cluster.worker.id === 3) {
+  setTimeout(() => {
+    throw new Error('Test error');
+  }, 3000);
+}
+*/
