@@ -330,7 +330,7 @@ const pairPriceSizeConsumer = (function makePairPriceSizeConsumer() {
 }());
 
 const messCron = (function makeMessCron() {
-  const dumpStep = 15000;
+  const dumpStep = 30000;
   let dumpTimeoutID: ?TimeoutID = null;
   let tickTimeoutID: ?TimeoutID = null;
 
