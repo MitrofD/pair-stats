@@ -7,7 +7,7 @@ const ACTIONS = {
 };
 
 const PAIRS_FILE_PATH = `${__dirname}/pairs.list`;
-const PAIR_DUMPS_DIR_PATH = `${__dirname}/pair-dumps`;
+const PAIR_DUMPS_DIR_PATH = `${__dirname}/dumps`;
 
 const COMMON_DATA = {
   ACTIONS,

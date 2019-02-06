@@ -1,5 +1,4 @@
 // @flow
-const cluster = require('cluster');
 const fs = require('fs');
 const { Producer } = require('node-rdkafka');
 const common = require('./common');
@@ -9,7 +8,7 @@ const common = require('./common');
 type Value = number[];
 type Values = Value[];
 
-const topic = 'pair-stats';
+const STATS_TOPIC_NAME = 'pair-stats';
 
 const producer = new Producer({
   dr_cb: false,
@@ -27,7 +26,7 @@ producer.on('ready', () => {
     const buffMess = Buffer.from(mess);
 
     try {
-      producer.produce(topic, -1, buffMess, pairName);
+      producer.produce(STATS_TOPIC_NAME, -1, buffMess, pairName);
       // eslint-disable-next-line no-empty
     } catch (error) {}
 
@@ -117,16 +116,36 @@ const savePair = (pair: string): Promise<void> => {
   return savePromise;
 };
 
-const dump = () => {
-  const availablePairs = Object.keys(VALS_OBJ);
-  const pLength = availablePairs.length;
-  let i = 0;
+const dump = (function makeDumpFunc() {
+  let IS_DUMP_MODE = false;
 
-  for (; i < pLength; i += 1) {
-    const pair = availablePairs[i];
-    savePair(pair).catch(globPrintError);
-  }
-};
+  return () => {
+    if (IS_DUMP_MODE) {
+      return;
+    }
+
+    IS_DUMP_MODE = true;
+
+    setImmediate(() => {
+      const promisesArray: Promise<void>[] = [];
+      const availablePairs = Object.keys(VALS_OBJ);
+      const pLength = availablePairs.length;
+      let i = 0;
+
+      for (; i < pLength; i += 1) {
+        const pair = availablePairs[i];
+        const savePromise = savePair(pair);
+        promisesArray.push(savePromise);
+      }
+
+      Promise.all(promisesArray).then(() => {
+        IS_DUMP_MODE = false;
+      }).catch(() => {
+        IS_DUMP_MODE = false;
+      });
+    });
+  };
+}());
 
 const tick = (data: { [string]: string[] }) => {
   const timeNow = Date.now();
@@ -231,9 +250,7 @@ const actions = {
     tick(actionData.data);
   },
 
-  [common.ACTIONS.DUMP]() {
-    setImmediate(dump);
-  },
+  [common.ACTIONS.DUMP]: dump,
 
   [common.ACTIONS.ADD](actionData: Object) {
     addPair(actionData.pair);

@@ -4,4 +4,5 @@ bundle.tar.gz
 .appconf
 yarn-error.log
 yarn.lock
-src/data
+src/api/pairs/dumps
+src/api/pairs/pairs.list

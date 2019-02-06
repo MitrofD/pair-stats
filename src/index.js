@@ -86,7 +86,6 @@ if (IS_MASTER) {
     OPTIONS: JSON.stringify(OPTIONS),
   };
 
-  let needExit = false;
   const workersLength = os.cpus().length;
   const emptyOrS = workersLength > 1 ? 's' : '';
   let loadedWorkers = 0;
@@ -109,17 +108,15 @@ if (IS_MASTER) {
       cluster.off('online', workerIsReady);
 
       const workerFail = (function makeWorkerFail() {
-        const resetAfterMS = 15000;
+        const resetAfterMS = workersLength * pureStepDelay;
         let length = 0;
 
-        return (error: Object) => {
+        return (errorCode: number) => {
           length += 1;
 
-          /*
           if (length === workersLength) {
-            // ollolo
+            throw new Error(`Worcer Error.Code ${errorCode}`);
           }
-          */
 
           setTimeout(() => {
             length = 0;
@@ -127,9 +124,10 @@ if (IS_MASTER) {
         };
       }());
 
-      cluster.on('exit', (worker) => {
+      cluster.on('exit', (worker: Object, code: number) => {
         if (!worker.exitedAfterDisconnect) {
           const newWorker = cluster.fork(clusterEnvs);
+          workerFail(code);
 
           newWorker.once('online', () => {
             cluster.emit('change', worker, newWorker);
