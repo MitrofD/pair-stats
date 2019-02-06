@@ -268,11 +268,3 @@ process.on('message', (data: ClusterMessage) => {
     actionHandler(data);
   }
 });
-
-/*
-if (cluster.worker.id === 3) {
-  setTimeout(() => {
-    throw new Error('Test error');
-  }, 3000);
-}
-*/
