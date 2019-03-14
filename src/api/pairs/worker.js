@@ -1,43 +1,83 @@
 // @flow
 const fs = require('fs');
-const { Producer } = require('node-rdkafka');
+
+const {
+  KafkaConsumer,
+  Producer,
+} = require('node-rdkafka');
+
 const common = require('./common');
 
 // Item structure: [time, price, max, min, size]
-
 type Value = number[];
 type Values = Value[];
+type Ticks = Array<string[]>;
 
+// MARK: - Pair price & size consumer
+const defAutoCommitDelayMs = 5000;
+let AUTO_COMMIT_DELAY_MS = (OPTIONS.STEP_DELAY: number);
+
+if (AUTO_COMMIT_DELAY_MS < defAutoCommitDelayMs) {
+  AUTO_COMMIT_DELAY_MS = defAutoCommitDelayMs;
+}
+
+const KAFKA_GROUP_ID = 'pair-stats-worker';
+const PAIR_PRICE_SIZE_TOPIC = 'pair-price-size';
+
+const pairPriceSizeConsumer = new KafkaConsumer({
+  'auto.commit.interval.ms': AUTO_COMMIT_DELAY_MS,
+  'enable.auto.commit': true,
+  'group.id': KAFKA_GROUP_ID,
+  'bootstrap.servers': OPTIONS.KAFKA_BROKERS,
+});
+
+pairPriceSizeConsumer.on('ready', () => {
+  pairPriceSizeConsumer.subscribe([
+    PAIR_PRICE_SIZE_TOPIC,
+  ]);
+
+  pairPriceSizeConsumer.consume();
+});
+
+pairPriceSizeConsumer.on('data', (data) => {
+  /*
+  const value = data.value.toString();
+  const messParts
+  */
+  const mess = data.value.toString();
+  const messParts = mess.split(' ', 3);
+  // eslint-disable-next-line flowtype-errors/show-errors
+  process.send(messParts);
+});
+
+pairPriceSizeConsumer.connect();
+
+// MARK: - Stats producer
 const STATS_TOPIC_NAME = 'pair-stats';
 
-const producer = new Producer({
+const statsProducer = new Producer({
+  acks: 0,
   dr_cb: false,
-  'metadata.broker.list': OPTIONS.KAFKA_BROKERS,
+  dr_msg_cb: false,
+  'bootstrap.servers': OPTIONS.KAFKA_BROKERS,
 });
 
 let messHandler: Function = () => {};
 
-producer.on('ready', () => {
-  const maxMessCounter = 6000;
-  let messCounter = 0;
-
+statsProducer.on('ready', () => {
   messHandler = (pairName, mess) => {
-    messCounter += 1;
     const buffMess = Buffer.from(mess);
 
     try {
-      producer.produce(STATS_TOPIC_NAME, -1, buffMess, pairName);
+      statsProducer.produce(STATS_TOPIC_NAME, -1, buffMess, pairName);
       // eslint-disable-next-line no-empty
     } catch (error) {}
-
-    if (messCounter > maxMessCounter) {
-      producer.poll();
-      messCounter = 0;
-    }
   };
+}).on('disconnected', () => {
+  messHandler = () => {};
 });
 
-producer.connect();
+statsProducer.connect();
 
 const has = Object.prototype.hasOwnProperty;
 const VALS_OBJ: { [string]: Values } = {};
@@ -147,7 +187,7 @@ const dump = (function makeDumpFunc() {
   };
 }());
 
-const tick = (data: { [string]: string[] }) => {
+const tick = (data: { [string]: Ticks }) => {
   const timeNow = Date.now();
   const availablePairs = Object.keys(VALS_OBJ);
   const pLength = availablePairs.length;
@@ -159,7 +199,7 @@ const tick = (data: { [string]: string[] }) => {
 
     // eslint-disable-next-line no-loop-func
     setImmediate(() => {
-      const addData: string[] = Array.isArray(data[pair]) ? data[pair] : [];
+      const addData: Ticks = Array.isArray(data[pair]) ? data[pair] : [];
       const addDataLength = addData.length;
 
       if (addDataLength > 0) {
@@ -245,7 +285,7 @@ const tick = (data: { [string]: string[] }) => {
   }
 };
 
-const actions = {
+const processActions = {
   [common.ACTIONS.TICK](actionData: Object) {
     tick(actionData.data);
   },
@@ -262,7 +302,7 @@ const actions = {
 };
 
 process.on('message', (data: ClusterMessage) => {
-  const actionHandler = actions[data.action];
+  const actionHandler = processActions[data.action];
 
   if (typeof actionHandler === 'function') {
     actionHandler(data);

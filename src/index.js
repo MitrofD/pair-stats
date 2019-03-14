@@ -69,7 +69,7 @@ if (IS_MASTER) {
     return brokerList;
   }());
 
-  const pureDuration = parseInt(DURATION_MS) || 86400000;
+  const pureDuration = parseInt(DURATION_MS) || 86400000; // 1 day by default
   const pureStepDelay = parseInt(STEP_DELAY_MS) || 1000;
 
   if (pureDuration < pureStepDelay) {
@@ -88,15 +88,15 @@ if (IS_MASTER) {
 
   const workersLength = os.cpus().length;
   const emptyOrS = workersLength > 1 ? 's' : '';
-  let loadedWorkers = 0;
+  let loadedWorkersLength = 0;
 
   showSuccessMessage(`🤴🏼 Master wait ${workersLength} worker${emptyOrS}:\n`);
 
   const workerIsReady = (readyWorker: Object) => {
-    loadedWorkers += 1;
+    loadedWorkersLength += 1;
     showSuccessMessage(`👷 Worker "${readyWorker.id}" is ready`);
 
-    if (loadedWorkers === workersLength) {
+    if (loadedWorkersLength === workersLength) {
       global.whenSystemReady = whenSystemReady;
       showSuccessMessage('\n🏄 Let\'s go!');
 
@@ -115,7 +115,7 @@ if (IS_MASTER) {
           length += 1;
 
           if (length === workersLength) {
-            throw new Error(`Worcer Error.Code ${errorCode}`);
+            throw new Error(`Worker Error.Code ${errorCode}`);
           }
 
           setTimeout(() => {
@@ -126,8 +126,8 @@ if (IS_MASTER) {
 
       cluster.on('exit', (worker: Object, code: number) => {
         if (!worker.exitedAfterDisconnect) {
-          const newWorker = cluster.fork(clusterEnvs);
           workerFail(code);
+          const newWorker = cluster.fork(clusterEnvs);
 
           newWorker.once('online', () => {
             cluster.emit('change', worker, newWorker);
@@ -138,7 +138,6 @@ if (IS_MASTER) {
   };
 
   cluster.on('online', workerIsReady);
-
   let i = 0;
 
   for (; i < workersLength; i += 1) {
