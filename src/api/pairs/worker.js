@@ -174,7 +174,7 @@ const dump = (function makeDumpFunc() {
     IS_DUMP_MODE = true;
 
     setImmediate(() => {
-      const promisesArray: Promise<void>[] = [];
+      const promisesArr: Promise<void>[] = [];
       const availablePairs = Object.keys(VALS_OBJ);
       const pLength = availablePairs.length;
       let i = 0;
@@ -182,10 +182,10 @@ const dump = (function makeDumpFunc() {
       for (; i < pLength; i += 1) {
         const pair = availablePairs[i];
         const savePromise = savePair(pair);
-        promisesArray.push(savePromise);
+        promisesArr.push(savePromise);
       }
 
-      Promise.all(promisesArray).then(() => {
+      Promise.all(promisesArr).then(() => {
         IS_DUMP_MODE = false;
       }).catch(() => {
         IS_DUMP_MODE = false;
@@ -293,18 +293,18 @@ const tick = (data: { [string]: Ticks }) => {
 };
 
 const processActions = {
-  [common.ACTIONS.TICK](actionData: Object) {
-    tick(actionData.data);
+  [common.ACTIONS.TICK](tick: Object) {
+    tick(tick.data);
   },
 
   [common.ACTIONS.DUMP]: dump,
 
-  [common.ACTIONS.ADD](actionData: Object) {
-    addPair(actionData.pair);
+  [common.ACTIONS.ADD](data: Object) {
+    addPair(data.pair);
   },
 
-  [common.ACTIONS.REMOVE](actionData: Object) {
-    removePair(actionData.pair);
+  [common.ACTIONS.REMOVE](data: Object) {
+    removePair(data.pair);
   },
 };
 
