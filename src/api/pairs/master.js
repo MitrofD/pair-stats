@@ -228,13 +228,13 @@ const pairActionConsumer = (function makePairActionConsumer() {
   const pairActions = {
     [common.ACTIONS.ADD](pair: string) {
       if (addPair(pair)) {
-        synchPairs().catch(globPrintError);
+        synchPairs().catch(globThrowError);
       }
     },
 
     [common.ACTIONS.REMOVE](pair: string) {
       if (removePair(pair)) {
-        synchPairs().catch(globPrintError);
+        synchPairs().catch(globThrowError);
       }
     },
   };

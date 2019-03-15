@@ -24,6 +24,7 @@
     "nodemon": "^1.18.9"
   },
   "dependencies": {
+    "fast-json-stringify": "^1.11.3",
     "node-rdkafka": "^2.5.1"
   }
 }

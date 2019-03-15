@@ -1,5 +1,6 @@
 // @flow
 const fs = require('fs');
+const fastJsonStringify = require('fast-json-stringify');
 
 const {
   KafkaConsumer,
@@ -7,6 +8,16 @@ const {
 } = require('node-rdkafka');
 
 const common = require('./common');
+
+const ticksStringify = fastJsonStringify({
+  type: 'array',
+  items: {
+    type: 'array',
+    items: {
+      type: 'number',
+    },
+  },
+});
 
 // Item structure: [time, price, max, min, size]
 type Value = number[];
@@ -40,10 +51,6 @@ pairPriceSizeConsumer.on('ready', () => {
 });
 
 pairPriceSizeConsumer.on('data', (data) => {
-  /*
-  const value = data.value.toString();
-  const messParts
-  */
   const mess = data.value.toString();
   const messParts = mess.split(' ', 3);
   // eslint-disable-next-line flowtype-errors/show-errors
@@ -119,7 +126,7 @@ const addPair = (pair: string) => {
 
   getInitStatsForPair(pair).then((stats) => {
     VALS_OBJ[pair] = stats;
-  }).catch(globPrintError);
+  }).catch(globThrowError);
 };
 
 const removePair = (pair: string) => {
@@ -128,7 +135,7 @@ const removePair = (pair: string) => {
   const filePath = getFilePath(pair);
   fs.unlink(filePath, (error) => {
     if (error) {
-      globPrintError(error);
+      globThrowError(error);
     }
   });
 };
@@ -140,7 +147,7 @@ const savePair = (pair: string): Promise<void> => {
   }
 
   const savePath = getFilePath(pair);
-  const saveDataStr = JSON.stringify(VALS_OBJ[pair]);
+  const saveDataStr = ticksStringify(VALS_OBJ[pair]);
 
   const savePromise = new Promise((resolve, reject) => {
     fs.writeFile(savePath, saveDataStr, (error) => {

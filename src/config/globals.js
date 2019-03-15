@@ -5,14 +5,11 @@ const envs = process.env;
 
 global.IS_DEV_MODE = false;
 
-global.globPrintError = () => {};
+global.globThrowError = () => {};
 
 if (envs.NODE_ENV === 'development') {
   IS_DEV_MODE = true;
-
-  globPrintError = (error: Error) => {
-    throw error;
-  };
+  globThrowError = showError;
 }
 
 global.ROOT_PATH = path.dirname(require.main.filename);
