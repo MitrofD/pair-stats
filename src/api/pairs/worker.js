@@ -72,11 +72,11 @@ const statsProducer = new Producer({
 let messHandler: Function = () => {};
 
 statsProducer.on('ready', () => {
-  messHandler = (pairName, mess) => {
+  messHandler = (mess) => {
     const buffMess = Buffer.from(mess);
 
     try {
-      statsProducer.produce(STATS_TOPIC_NAME, -1, buffMess, pairName);
+      statsProducer.produce(STATS_TOPIC_NAME, -1, buffMess);
       // eslint-disable-next-line no-empty
     } catch (error) {}
   };
@@ -194,7 +194,7 @@ const dump = (function makeDumpFunc() {
   };
 }());
 
-const tick = (data: { [string]: Ticks }) => {
+const tickHandler = (data: { [string]: Ticks }) => {
   const timeNow = Date.now();
   const availablePairs = Object.keys(VALS_OBJ);
   const pLength = availablePairs.length;
@@ -287,14 +287,14 @@ const tick = (data: { [string]: Ticks }) => {
         min = 0;
       }
 
-      messHandler(pair, `${price} ${max} ${min} ${size} ${change} ${timeNow}`);
+      messHandler(`${pair} ${price} ${max} ${min} ${size} ${change} ${timeNow}`);
     });
   }
 };
 
 const processActions = {
   [common.ACTIONS.TICK](tick: Object) {
-    tick(tick.data);
+    tickHandler(tick.data);
   },
 
   [common.ACTIONS.DUMP]: dump,
