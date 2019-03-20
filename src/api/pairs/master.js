@@ -5,7 +5,6 @@ const fs = require('fs');
 const common = require('./common');
 
 const has = Object.prototype.hasOwnProperty;
-
 const KAFKA_GROUP_ID = `${common.NAME}-master`;
 const PAIR_REL_WORKER_OBJ: { [string]: Object } = {};
 const WORKER_REL_PAIR_OBJ: { [string]: string[] } = {};
@@ -176,7 +175,7 @@ const addPair = (pair: string): boolean => {
 
   worker.send({
     pair,
-    action: common.ACTION.ADD,
+    action: common.ACTION.ADD_PAIR,
   });
 
   return true;
@@ -191,7 +190,7 @@ const removePair = (pair: string): boolean => {
 
   worker.send({
     pair,
-    action: common.ACTION.REMOVE,
+    action: common.ACTION.REMOVE_PAIR,
   });
 
   const workerID = worker.id;
@@ -226,13 +225,13 @@ const actionsConsumer = (function makeActionsConsumer() {
   let consumer: ?Object = null;
 
   const pairActions = {
-    [common.ACTION.ADD](pair: string) {
+    [common.ACTION.ADD_PAIR](pair: string) {
       if (addPair(pair)) {
         synchPairs().catch(globThrowError);
       }
     },
 
-    [common.ACTION.REMOVE](pair: string) {
+    [common.ACTION.REMOVE_PAIR](pair: string) {
       if (removePair(pair)) {
         synchPairs().catch(globThrowError);
       }
@@ -413,7 +412,7 @@ const messCron = (function makeMessCron() {
 
       newWorker.send({
         pair,
-        action: common.ACTION.ADD,
+        action: common.ACTION.ADD_PAIR,
       });
     }
   });

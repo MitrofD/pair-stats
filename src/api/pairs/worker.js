@@ -314,11 +314,11 @@ const processActions = {
     }
   },
 
-  [common.ACTION.ADD](data: Object) {
+  [common.ACTION.ADD_PAIR](data: Object) {
     addPair(data.pair);
   },
 
-  [common.ACTION.REMOVE](data: Object) {
+  [common.ACTION.REMOVE_PAIR](data: Object) {
     removePair(data.pair);
   },
 };
