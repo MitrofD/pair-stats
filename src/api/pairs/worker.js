@@ -32,8 +32,9 @@ if (AUTO_COMMIT_DELAY_MS < defAutoCommitDelayMs) {
   AUTO_COMMIT_DELAY_MS = defAutoCommitDelayMs;
 }
 
-const KAFKA_GROUP_ID = 'pair-stats-worker';
+const KAFKA_GROUP_ID = `${common.NAME}-worker`;
 const PAIR_PRICE_SIZE_TOPIC = 'pair-price-size';
+let PREV_TICKS = [];
 
 const pairPriceSizeConsumer = new KafkaConsumer({
   'auto.commit.interval.ms': AUTO_COMMIT_DELAY_MS,
@@ -60,7 +61,7 @@ pairPriceSizeConsumer.on('data', (data) => {
 pairPriceSizeConsumer.connect();
 
 // MARK: - Stats producer
-const STATS_TOPIC_NAME = 'pair-stats';
+const STATS_TOPIC_NAME = common.NAME;
 
 const statsProducer = new Producer({
   acks: 0,
@@ -69,10 +70,10 @@ const statsProducer = new Producer({
   'bootstrap.servers': OPTIONS.KAFKA_BROKERS,
 });
 
-let messHandler: Function = () => {};
+let sendMessage: Function = () => {};
 
 statsProducer.on('ready', () => {
-  messHandler = (mess) => {
+  sendMessage = (mess) => {
     const buffMess = Buffer.from(mess);
 
     try {
@@ -81,7 +82,7 @@ statsProducer.on('ready', () => {
     } catch (error) {}
   };
 }).on('disconnected', () => {
-  messHandler = () => {};
+  sendMessage = () => {};
 });
 
 statsProducer.connect();
@@ -163,7 +164,7 @@ const savePair = (pair: string): Promise<void> => {
   return savePromise;
 };
 
-const dump = (function makeDumpFunc() {
+const dumpHandler = (function makeDumpFunc() {
   let IS_DUMP_MODE = false;
 
   return () => {
@@ -199,6 +200,8 @@ const tickHandler = (data: { [string]: Ticks }) => {
   const availablePairs = Object.keys(VALS_OBJ);
   const pLength = availablePairs.length;
   let i = 0;
+
+  PREV_TICKS = [];
 
   for (; i < pLength; i += 1) {
     const pair = availablePairs[i];
@@ -287,7 +290,9 @@ const tickHandler = (data: { [string]: Ticks }) => {
         min = 0;
       }
 
-      messHandler(`${pair} ${price} ${max} ${min} ${size} ${change} ${timeNow}`);
+      const message = `${pair} ${price} ${max} ${min} ${size} ${change} ${timeNow}`;
+      PREV_TICKS.push(message);
+      sendMessage(message);
     });
   }
 };
@@ -297,7 +302,17 @@ const processActions = {
     tickHandler(tick.data);
   },
 
-  [common.ACTIONS.DUMP]: dump,
+  [common.ACTIONS.DUMP]: dumpHandler,
+
+  [common.ACTIONS.FORCE_TICK]() {
+    const ticksLength = PREV_TICKS.length;
+    let i = 0;
+
+    for (; i < ticksLength; i += 1) {
+      const tickMessage = PREV_TICKS[i];
+      sendMessage(tickMessage);
+    }
+  },
 
   [common.ACTIONS.ADD](data: Object) {
     addPair(data.pair);

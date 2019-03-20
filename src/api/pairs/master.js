@@ -6,7 +6,7 @@ const common = require('./common');
 
 const has = Object.prototype.hasOwnProperty;
 
-const KAFKA_GROUP_ID = 'pair-stats-master';
+const KAFKA_GROUP_ID = `${common.NAME}-master`;
 const PAIR_REL_WORKER_OBJ: { [string]: Object } = {};
 const WORKER_REL_PAIR_OBJ: { [string]: string[] } = {};
 const WORKER_REL_PAIRS_COUNT: { [string]: number } = {};
@@ -221,8 +221,8 @@ const makeActionWithWorker = (func: Function) => {
   }
 };
 
-const pairActionConsumer = (function makePairActionConsumer() {
-  const topic = 'pair-action';
+const actionsConsumer = (function makeActionsConsumer() {
+  const topic = `${common.NAME}-action`;
   let consumer: ?Object = null;
 
   const pairActions = {
@@ -236,6 +236,14 @@ const pairActionConsumer = (function makePairActionConsumer() {
       if (removePair(pair)) {
         synchPairs().catch(globThrowError);
       }
+    },
+
+    [common.ACTIONS.FORCE_TICK]() {
+      makeActionWithWorker((worker) => {
+        worker.send({
+          action: common.ACTIONS.FORCE_TICK,
+        });
+      });
     },
   };
 
@@ -364,14 +372,14 @@ const messCron = (function makeMessCron() {
       const needTickDelay = OPTIONS.STEP_DELAY - (nowTime % OPTIONS.STEP_DELAY);
       dump(needDumpDelay);
       tick(needTickDelay);
-      pairActionConsumer.start();
+      actionsConsumer.start();
       cluster.on('message', ticksHandler);
     },
 
     stop() {
       stopTimeoutIfNeeded(dumpTimeoutID);
       stopTimeoutIfNeeded(tickTimeoutID);
-      pairActionConsumer.stop();
+      actionsConsumer.stop();
       cluster.off('message', ticksHandler);
       VALS_OBJ = {};
     },
