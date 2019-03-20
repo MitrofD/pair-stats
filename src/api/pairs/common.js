@@ -1,5 +1,5 @@
 // @flow
-const ACTIONS = {
+const ACTION = {
   ADD: 'ADD',
   DUMP: 'DUMP',
   FORCE_TICK: 'FORCE_TICK',
@@ -12,7 +12,7 @@ const PAIR_DUMPS_DIR_PATH = `${__dirname}/dumps`;
 const NAME = 'pair-stats';
 
 const COMMON_DATA = {
-  ACTIONS,
+  ACTION,
   NAME,
   PAIRS_FILE_PATH,
   PAIR_DUMPS_DIR_PATH,

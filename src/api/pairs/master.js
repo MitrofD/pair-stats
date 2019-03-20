@@ -176,7 +176,7 @@ const addPair = (pair: string): boolean => {
 
   worker.send({
     pair,
-    action: common.ACTIONS.ADD,
+    action: common.ACTION.ADD,
   });
 
   return true;
@@ -191,7 +191,7 @@ const removePair = (pair: string): boolean => {
 
   worker.send({
     pair,
-    action: common.ACTIONS.REMOVE,
+    action: common.ACTION.REMOVE,
   });
 
   const workerID = worker.id;
@@ -226,22 +226,22 @@ const actionsConsumer = (function makeActionsConsumer() {
   let consumer: ?Object = null;
 
   const pairActions = {
-    [common.ACTIONS.ADD](pair: string) {
+    [common.ACTION.ADD](pair: string) {
       if (addPair(pair)) {
         synchPairs().catch(globThrowError);
       }
     },
 
-    [common.ACTIONS.REMOVE](pair: string) {
+    [common.ACTION.REMOVE](pair: string) {
       if (removePair(pair)) {
         synchPairs().catch(globThrowError);
       }
     },
 
-    [common.ACTIONS.FORCE_TICK]() {
+    [common.ACTION.FORCE_TICK]() {
       makeActionWithWorker((worker) => {
         worker.send({
-          action: common.ACTIONS.FORCE_TICK,
+          action: common.ACTION.FORCE_TICK,
         });
       });
     },
@@ -326,7 +326,7 @@ const messCron = (function makeMessCron() {
     dumpTimeoutID = setTimeout(() => {
       makeActionWithWorker((worker) => {
         worker.send({
-          action: common.ACTIONS.DUMP,
+          action: common.ACTION.DUMP,
         });
       });
 
@@ -338,7 +338,7 @@ const messCron = (function makeMessCron() {
     tickTimeoutID = setTimeout(() => {
       makeActionWithWorker((worker) => {
         worker.send({
-          action: common.ACTIONS.TICK,
+          action: common.ACTION.TICK,
           data: VALS_OBJ,
         });
       });
@@ -413,7 +413,7 @@ const messCron = (function makeMessCron() {
 
       newWorker.send({
         pair,
-        action: common.ACTIONS.ADD,
+        action: common.ACTION.ADD,
       });
     }
   });

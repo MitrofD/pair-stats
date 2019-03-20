@@ -298,13 +298,13 @@ const tickHandler = (data: { [string]: Ticks }) => {
 };
 
 const processActions = {
-  [common.ACTIONS.TICK](tick: Object) {
+  [common.ACTION.TICK](tick: Object) {
     tickHandler(tick.data);
   },
 
-  [common.ACTIONS.DUMP]: dumpHandler,
+  [common.ACTION.DUMP]: dumpHandler,
 
-  [common.ACTIONS.FORCE_TICK]() {
+  [common.ACTION.FORCE_TICK]() {
     const ticksLength = PREV_TICKS.length;
     let i = 0;
 
@@ -314,11 +314,11 @@ const processActions = {
     }
   },
 
-  [common.ACTIONS.ADD](data: Object) {
+  [common.ACTION.ADD](data: Object) {
     addPair(data.pair);
   },
 
-  [common.ACTIONS.REMOVE](data: Object) {
+  [common.ACTION.REMOVE](data: Object) {
     removePair(data.pair);
   },
 };
