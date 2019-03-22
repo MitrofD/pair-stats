@@ -6,9 +6,8 @@ const ACTION = {
   REMOVE_PAIR: 'REMOVE_PAIR',
 };
 
-const pwd = __dirname;
-const PAIRS_FILE_PATH = `${pwd}/pairs.list`;
-const PAIR_DUMPS_DIR_PATH = `${pwd}/dumps`;
+const PAIRS_FILE_PATH = `${__dirname}/pairs.list`;
+const PAIR_DUMPS_DIR_PATH = `${__dirname}/dumps`;
 const NAME = 'pair-stats';
 
 module.exports = {
