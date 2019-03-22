@@ -202,9 +202,9 @@ const tickHandler = (data: { [string]: Ticks }) => {
         let aI = 0;
 
         for (; aI < addDataLength; aI += 1) {
-          const itemData = addData[aI];
-          const price = +itemData[1];
-          const size = +itemData[2];
+          const item = addData[aI];
+          const price = +item[1];
+          const size = +item[2];
           addSize += size;
 
           if (price > addMax) {
@@ -217,7 +217,7 @@ const tickHandler = (data: { [string]: Ticks }) => {
         }
 
         const lastItem = addData[addDataLength - 1];
-        const price = +lastItem[0];
+        const price = +lastItem[1];
 
         const addItem = [
           timeNow,
