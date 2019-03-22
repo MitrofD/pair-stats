@@ -27,7 +27,6 @@
     "no-underscore-dangle": 0,
     "no-unused-vars": 1,
     "no-eval": 0,
-    "radix": 0,
     "spaced-comment": 1
   }
 }

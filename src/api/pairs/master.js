@@ -46,14 +46,22 @@ const createPairFilesDir = (): Promise<void> => {
 };
 
 const getPairs = (): Promise<string[]> => {
-  const readFile = (clbck: Function) => {
-    fs.readFile(common.PAIRS_FILE_PATH, 'utf8', clbck);
+  const readFile = (callback: Function) => {
+    fs.readFile(common.PAIRS_FILE_PATH, 'utf8', callback);
   };
 
   const strAsPairsArr = (str: string) => {
-    const pureStr = str.trim();
-    const pairArr = pureStr.split('\n');
-    const rArr = pairArr.map((pair) => pair.trim());
+    const pairArr = str.split('\n');
+    const pairArrLength = pairArr.length;
+    const rArr = [];
+    let i = 0;
+
+    for (; i < pairArrLength; i += 1) {
+      const pair = pairArr[i];
+      const purePair = pair.trim();
+      rArr[rArr.length] = purePair;
+    }
+
     return rArr;
   };
 
@@ -94,9 +102,9 @@ const getPairs = (): Promise<string[]> => {
   return getPromise;
 };
 
-const getPairsOfWorker = (workerId: string) => {
+const getPairsOfWorker = (wID: string) => {
   let returnArr: string[] = [];
-  const pairsOfWorker = WORKER_REL_PAIR_OBJ[workerId];
+  const pairsOfWorker = WORKER_REL_PAIR_OBJ[wID];
 
   if (Array.isArray(pairsOfWorker)) {
     returnArr = pairsOfWorker;
@@ -166,7 +174,7 @@ const addPair = (pair: string): boolean => {
   const worker = getNextWorker();
   const workerID = worker.id;
   const workerPairs = getPairsOfWorker(workerID);
-  workerPairs.push(pair);
+  workerPairs[workerPairs.length] = pair;
 
   WORKER_REL_PAIR_OBJ[workerID] = workerPairs;
   PAIR_REL_WORKER_OBJ[pair] = worker;
@@ -236,14 +244,6 @@ const actionsConsumer = (function makeActionsConsumer() {
         synchPairs().catch(globThrowError);
       }
     },
-
-    [common.ACTION.FORCE_TICK]() {
-      makeActionWithWorker((worker) => {
-        worker.send({
-          action: common.ACTION.FORCE_TICK,
-        });
-      });
-    },
   };
 
   return Object.freeze({
@@ -297,23 +297,19 @@ const actionsConsumer = (function makeActionsConsumer() {
   });
 }());
 
-const ticksHandler = (worker: Object, tickData: string[]) => {
-  const [
-    pair,
-    price,
-    size,
-  ] = tickData;
+const ticksHandler = (worker: Object, tick: any[]) => {
+  const pairName = tick[0];
 
-  if (!isExistsPair(pair)) {
-    if (addPair(pair)) {
-      synchPairs();
+  if (!isExistsPair(pairName)) {
+    if (addPair(pairName)) {
+      return;
     }
+
+    synchPairs();
   }
 
-  VALS_OBJ[pair].push([
-    price,
-    size,
-  ]);
+  const pairData = VALS_OBJ[pairName];
+  pairData[pairData.length] = tick;
 };
 
 const messCron = (function makeMessCron() {
@@ -333,6 +329,18 @@ const messCron = (function makeMessCron() {
     }, msDelay);
   };
 
+  const resetData = () => {
+    VALS_OBJ = {};
+    const pairsArr = getExistsPairs();
+    const pairsArrLength = pairsArr.length;
+    let i = 0;
+
+    for (; i < pairsArrLength; i += 1) {
+      const pair = pairsArr[i];
+      VALS_OBJ[pair] = [];
+    }
+  };
+
   const tick = (msDelay: number) => {
     tickTimeoutID = setTimeout(() => {
       makeActionWithWorker((worker) => {
@@ -342,16 +350,7 @@ const messCron = (function makeMessCron() {
         });
       });
 
-      VALS_OBJ = {};
-      const pairsArr = getExistsPairs();
-      const pairsArrLength = pairsArr.length;
-      let i = 0;
-
-      for (; i < pairsArrLength; i += 1) {
-        const pair = pairsArr[i];
-        VALS_OBJ[pair] = [];
-      }
-
+      resetData();
       tick(OPTIONS.STEP_DELAY);
     }, msDelay);
   };
@@ -380,7 +379,7 @@ const messCron = (function makeMessCron() {
       stopTimeoutIfNeeded(tickTimeoutID);
       actionsConsumer.stop();
       cluster.off('message', ticksHandler);
-      VALS_OBJ = {};
+      resetData();
     },
   });
 }());

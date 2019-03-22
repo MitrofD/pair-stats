@@ -2,7 +2,6 @@
 const ACTION = {
   ADD_PAIR: 'ADD_PAIR',
   DUMP: 'DUMP',
-  FORCE_TICK: 'FORCE_TICK',
   TICK: 'TICK',
   REMOVE_PAIR: 'REMOVE_PAIR',
 };

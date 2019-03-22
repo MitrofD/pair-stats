@@ -46,8 +46,12 @@ if (IS_MASTER) {
   } = process.env;
 
   const kafkaBrokersList = (function getPureKafkaBrokers() {
-    const emptyStr = '';
-    const brokerList = typeof KAFKA_BROKERS === 'string' ? KAFKA_BROKERS.replace(' ', emptyStr) : emptyStr;
+    let brokerList = '';
+
+    if (typeof KAFKA_BROKERS === 'string') {
+      brokerList = KAFKA_BROKERS.replace(' ', '');
+    }
+
     const brokerListArr = brokerList.split(',');
     const brokerListLength = brokerListArr.length;
 
@@ -69,8 +73,9 @@ if (IS_MASTER) {
     return brokerList;
   }());
 
-  const pureDuration = parseInt(DURATION_MS) || 86400000; // 1 day by default
-  const pureStepDelay = parseInt(STEP_DELAY_MS) || 1000;
+  // 1 day by default
+  const pureDuration = parseInt(DURATION_MS, 10) || 86400000;
+  const pureStepDelay = parseInt(STEP_DELAY_MS, 10) || 1000;
 
   if (pureDuration < pureStepDelay) {
     throw new Error('Statistics step delay can\'t be great than duration');
@@ -86,7 +91,8 @@ if (IS_MASTER) {
     OPTIONS: JSON.stringify(OPTIONS),
   };
 
-  const workersLength = os.cpus().length;
+  const cpusLength = os.cpus().length;
+  const workersLength = Math.max(1, cpusLength - 1);
   const emptyOrS = workersLength > 1 ? 's' : '';
   let loadedWorkersLength = 0;
 
@@ -99,10 +105,13 @@ if (IS_MASTER) {
     if (loadedWorkersLength === workersLength) {
       global.whenSystemReady = whenSystemReady;
       showSuccessMessage('\n🏄 Let\'s go!');
+      const readySubsLength = readySubs.length;
+      let i = 0;
 
-      readySubs.forEach((sub) => {
+      for (; i < readySubsLength; i += 1) {
+        const sub = readySubs[i];
         sub();
-      });
+      }
 
       // eslint-disable-next-line flowtype-errors/show-errors
       cluster.off('online', workerIsReady);

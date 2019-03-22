@@ -19,24 +19,20 @@ const ticksStringify = fastJsonStringify({
   },
 });
 
-// Item structure: [time, price, max, min, size]
+// Item structure: [pair, time, price, max, min, size]
 type Value = number[];
 type Values = Value[];
 type Ticks = Array<string[]>;
 
 // MARK: - Pair price & size consumer
 const defAutoCommitDelayMs = 5000;
-let AUTO_COMMIT_DELAY_MS = (OPTIONS.STEP_DELAY: number);
-
-if (AUTO_COMMIT_DELAY_MS < defAutoCommitDelayMs) {
-  AUTO_COMMIT_DELAY_MS = defAutoCommitDelayMs;
-}
+const AUTO_COMMIT_DELAY_MS = Math.max((OPTIONS.STEP_DELAY: number), defAutoCommitDelayMs);
 
 const KAFKA_GROUP_ID = `${common.NAME}-worker`;
 const PAIR_PRICE_SIZE_TOPIC = 'pair-price-size';
-let PREV_TICKS = [];
 
 const pairPriceSizeConsumer = new KafkaConsumer({
+  'auto.offset.reset': 'latest',
   'auto.commit.interval.ms': AUTO_COMMIT_DELAY_MS,
   'enable.auto.commit': true,
   'group.id': KAFKA_GROUP_ID,
@@ -51,9 +47,9 @@ pairPriceSizeConsumer.on('ready', () => {
   pairPriceSizeConsumer.consume();
 });
 
-pairPriceSizeConsumer.on('data', (data) => {
-  const mess = data.value.toString();
-  const messParts = mess.split(' ', 3);
+pairPriceSizeConsumer.on('data', (mess) => {
+  const pureMess = mess.value.toString();
+  const messParts = pureMess.split(' ', 3);
   // eslint-disable-next-line flowtype-errors/show-errors
   process.send(messParts);
 });
@@ -183,7 +179,7 @@ const dumpHandler = (function makeDumpFunc() {
       for (; i < pLength; i += 1) {
         const pair = availablePairs[i];
         const savePromise = savePair(pair);
-        promisesArr.push(savePromise);
+        promisesArr[promisesArr.length] = savePromise;
       }
 
       Promise.all(promisesArr).then(() => {
@@ -201,8 +197,6 @@ const tickHandler = (data: { [string]: Ticks }) => {
   const pLength = availablePairs.length;
   let i = 0;
 
-  PREV_TICKS = [];
-
   for (; i < pLength; i += 1) {
     const pair = availablePairs[i];
     const pairDataArr = VALS_OBJ[pair];
@@ -219,9 +213,9 @@ const tickHandler = (data: { [string]: Ticks }) => {
         let aI = 0;
 
         for (; aI < addDataLength; aI += 1) {
-          const addDataItem = addData[aI];
-          const price = +addDataItem[0];
-          const size = +addDataItem[1];
+          const itemData = addData[aI];
+          const price = +itemData[1];
+          const size = +itemData[2];
           addSize += size;
 
           if (price > addMax) {
@@ -290,9 +284,7 @@ const tickHandler = (data: { [string]: Ticks }) => {
         min = 0;
       }
 
-      const message = `${pair} ${price} ${max} ${min} ${size} ${change} ${timeNow}`;
-      PREV_TICKS.push(message);
-      sendMessage(message);
+      sendMessage(`${pair} ${price} ${max} ${min} ${size} ${change} ${timeNow}`);
     });
   }
 };
@@ -303,16 +295,6 @@ const processActions = {
   },
 
   [common.ACTION.DUMP]: dumpHandler,
-
-  [common.ACTION.FORCE_TICK]() {
-    const ticksLength = PREV_TICKS.length;
-    let i = 0;
-
-    for (; i < ticksLength; i += 1) {
-      const tickMessage = PREV_TICKS[i];
-      sendMessage(tickMessage);
-    }
-  },
 
   [common.ACTION.ADD_PAIR](data: Object) {
     addPair(data.pair);
