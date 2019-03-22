@@ -1,6 +1,7 @@
 // @flow
 const fs = require('fs');
-const fastJsonStringify = require('fast-json-stringify');
+const fastJSONStringify = require('fast-json-stringify');
+const fastJSONParse = require('fast-json-parse');
 
 const {
   KafkaConsumer,
@@ -9,7 +10,7 @@ const {
 
 const common = require('./common');
 
-const ticksStringify = fastJsonStringify({
+const ticksStringify = fastJSONStringify({
   type: 'array',
   items: {
     type: 'array',
@@ -26,35 +27,27 @@ type Ticks = Array<string[]>;
 
 // MARK: - Pair price & size consumer
 const defAutoCommitDelayMs = 5000;
-const AUTO_COMMIT_DELAY_MS = Math.max((OPTIONS.STEP_DELAY: number), defAutoCommitDelayMs);
-
+const delayFromOprionsMs = (OPTIONS.STEP_DELAY: number);
+const AUTO_COMMIT_DELAY_MS = delayFromOprionsMs > defAutoCommitDelayMs ? delayFromOprionsMs : defAutoCommitDelayMs;
 const KAFKA_GROUP_ID = `${common.NAME}-worker`;
 const PAIR_PRICE_SIZE_TOPIC = 'pair-price-size';
 
-const pairPriceSizeConsumer = new KafkaConsumer({
+KafkaConsumer.createReadStream({
   'auto.offset.reset': 'latest',
   'auto.commit.interval.ms': AUTO_COMMIT_DELAY_MS,
   'enable.auto.commit': true,
   'group.id': KAFKA_GROUP_ID,
   'bootstrap.servers': OPTIONS.KAFKA_BROKERS,
-});
-
-pairPriceSizeConsumer.on('ready', () => {
-  pairPriceSizeConsumer.subscribe([
+}, {}, {
+  topics: [
     PAIR_PRICE_SIZE_TOPIC,
-  ]);
-
-  pairPriceSizeConsumer.consume();
-});
-
-pairPriceSizeConsumer.on('data', (mess) => {
+  ],
+}).on('data', (mess) => {
   const pureMess = mess.value.toString();
   const messParts = pureMess.split(' ', 3);
   // eslint-disable-next-line flowtype-errors/show-errors
   process.send(messParts);
 });
-
-pairPriceSizeConsumer.connect();
 
 // MARK: - Stats producer
 const STATS_TOPIC_NAME = common.NAME;
@@ -98,15 +91,11 @@ const getInitStatsForPair = (pair: string): Promise<Values> => {
       let rArr: Values = [];
 
       if (data) {
-        try {
-          // eslint-disable-next-line flowtype-errors/show-errors
-          const json = JSON.parse(data);
+        const { value } = fastJSONParse(data);
 
-          if (Array.isArray(json)) {
-            rArr = json;
-          }
-          // eslint-disable-next-line no-empty
-        } catch (parseError) {}
+        if (value && Array.isArray(value)) {
+          rArr = value;
+        }
       }
 
       resolve(rArr);

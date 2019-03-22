@@ -2,7 +2,7 @@
   "name": "pair-stats",
   "version": "1.0.0",
   "description": "Pair statistics",
-  "author": "Dmitriy Mitrophanskiy <dmitrophanskiy@gmail.com>",
+  "author": "tyApp lyApp <tyapplyapp@gmail.com>",
   "license": "MIT",
   "private": true,
   "scripts": {
@@ -24,6 +24,7 @@
     "nodemon": "^1.18.9"
   },
   "dependencies": {
+    "fast-json-parse": "^1.0.3",
     "fast-json-stringify": "^1.11.4",
     "node-rdkafka": "^2.6.1"
   }
