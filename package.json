@@ -7,25 +7,27 @@
   "private": true,
   "scripts": {
     "build": "bash shells/build.sh",
-    "start": "bash shells/start.sh"
+    "start": "bash shells/start.sh",
+    "test": "snyk test"
   },
   "devDependencies": {
-    "@babel/cli": "^7.2.3",
-    "@babel/core": "^7.4.0",
+    "@babel/cli": "^7.4.4",
+    "@babel/core": "^7.4.4",
     "@babel/node": "^7.2.2",
     "@babel/preset-flow": "^7.0.0",
     "babel-eslint": "^10.0.1",
     "eslint": "^5.15.3",
     "eslint-config-airbnb-base": "^13.1.0",
-    "eslint-plugin-flowtype": "^3.2.0",
+    "eslint-plugin-flowtype": "^3.8.1",
     "eslint-plugin-flowtype-errors": "^4.1.0",
-    "eslint-plugin-import": "^2.14.0",
-    "flow-bin": "^0.95.1",
-    "nodemon": "^1.18.9"
+    "eslint-plugin-import": "^2.17.2",
+    "flow-bin": "^0.98.1",
+    "nodemon": "^1.19.0",
+    "snyk": "^1.163.1"
   },
   "dependencies": {
     "fast-json-parse": "^1.0.3",
-    "fast-json-stringify": "^1.11.4",
+    "fast-json-stringify": "^1.15.2",
     "node-rdkafka": "^2.6.1"
   }
 }

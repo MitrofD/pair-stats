@@ -10,13 +10,20 @@ const {
 
 const common = require('./common');
 
-const ticksStringify = fastJSONStringify({
+const valsObjStringify = fastJSONStringify({
   type: 'array',
   items: {
     type: 'array',
     items: {
       type: 'number',
     },
+  },
+});
+
+const ticksStringify = fastJSONStringify({
+  type: 'array',
+  items: {
+    type: 'string',
   },
 });
 
@@ -34,6 +41,7 @@ const PAIR_PRICE_SIZE_TOPIC = 'pair-price-size';
 
 KafkaConsumer.createReadStream({
   'auto.offset.reset': 'latest',
+  'log.connection.close': false,
   'auto.commit.interval.ms': AUTO_COMMIT_DELAY_MS,
   'enable.auto.commit': true,
   'group.id': KAFKA_GROUP_ID,
@@ -47,7 +55,7 @@ KafkaConsumer.createReadStream({
   const messParts = pureMess.split(' ', 3);
   // eslint-disable-next-line flowtype-errors/show-errors
   process.send(messParts);
-});
+}).on('error', () => {});
 
 // MARK: - Stats producer
 const STATS_TOPIC_NAME = common.NAME;
@@ -56,6 +64,7 @@ const statsProducer = new Producer({
   acks: 0,
   dr_cb: false,
   dr_msg_cb: false,
+  'log.connection.close': false,
   'bootstrap.servers': OPTIONS.KAFKA_BROKERS,
 });
 
@@ -72,7 +81,7 @@ statsProducer.on('ready', () => {
   };
 }).on('disconnected', () => {
   sendMessage = () => {};
-});
+}).on('error', () => {});
 
 statsProducer.connect();
 
@@ -133,7 +142,7 @@ const savePair = (pair: string): Promise<void> => {
   }
 
   const savePath = getFilePath(pair);
-  const saveDataStr = ticksStringify(VALS_OBJ[pair]);
+  const saveDataStr = valsObjStringify(VALS_OBJ[pair]);
 
   const savePromise = new Promise((resolve, reject) => {
     fs.writeFile(savePath, saveDataStr, (error) => {
@@ -181,17 +190,18 @@ const dumpHandler = (function makeDumpFunc() {
 }());
 
 const tickHandler = (data: { [string]: Ticks }) => {
-  const timeNow = Date.now();
-  const availablePairs = Object.keys(VALS_OBJ);
-  const pLength = availablePairs.length;
-  let i = 0;
+  setImmediate(() => {
+    const timeNow = Date.now();
+    const availablePairs = Object.keys(VALS_OBJ);
+    const pLength = availablePairs.length;
+    const messages = [];
+    let messagesLength = 0;
+    let i = 0;
 
-  for (; i < pLength; i += 1) {
-    const pair = availablePairs[i];
-    const pairDataArr = VALS_OBJ[pair];
+    for (; i < pLength; i += 1) {
+      const pair = availablePairs[i];
+      const pairDataArr = VALS_OBJ[pair];
 
-    // eslint-disable-next-line no-loop-func
-    setImmediate(() => {
       const addData: Ticks = Array.isArray(data[pair]) ? data[pair] : [];
       const addDataLength = addData.length;
 
@@ -273,9 +283,13 @@ const tickHandler = (data: { [string]: Ticks }) => {
         min = 0;
       }
 
-      sendMessage(`${pair} ${price} ${max} ${min} ${size} ${change} ${timeNow}`);
-    });
-  }
+      messages[messagesLength] = `${pair} ${price} ${max} ${min} ${size} ${change} ${timeNow}`;
+      messagesLength += 1;
+    }
+
+    const strMess = ticksStringify(messages);
+    sendMessage(strMess);
+  });
 };
 
 const processActions = {

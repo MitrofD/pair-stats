@@ -251,9 +251,10 @@ const actionsConsumer = (function makeActionsConsumer() {
       this.stop();
 
       const newConsumer = new KafkaConsumer({
+        'bootstrap.servers': OPTIONS.KAFKA_BROKERS,
         'enable.auto.commit': true,
         'group.id': KAFKA_GROUP_ID,
-        'bootstrap.servers': OPTIONS.KAFKA_BROKERS,
+        'log.connection.close': false,
       });
 
       newConsumer.on('ready', () => {
@@ -284,6 +285,7 @@ const actionsConsumer = (function makeActionsConsumer() {
         }
       });
 
+      newConsumer.on('error', () => {});
       newConsumer.connect();
       consumer = newConsumer;
     },
