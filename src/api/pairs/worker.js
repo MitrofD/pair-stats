@@ -20,14 +20,7 @@ const valsObjStringify = fastJSONStringify({
   },
 });
 
-const ticksStringify = fastJSONStringify({
-  type: 'array',
-  items: {
-    type: 'string',
-  },
-});
-
-// Item structure: [pair, time, price, max, min, size]
+// Item structure: [pair, price, max, min, size, change, time]
 type Value = number[];
 type Values = Value[];
 type Ticks = Array<string[]>;
@@ -194,14 +187,12 @@ const tickHandler = (data: { [string]: Ticks }) => {
     const timeNow = Date.now();
     const availablePairs = Object.keys(VALS_OBJ);
     const pLength = availablePairs.length;
-    const messages = [];
-    let messagesLength = 0;
+    const messages = {};
     let i = 0;
 
     for (; i < pLength; i += 1) {
       const pair = availablePairs[i];
       const pairDataArr = VALS_OBJ[pair];
-
       const addData: Ticks = Array.isArray(data[pair]) ? data[pair] : [];
       const addDataLength = addData.length;
 
@@ -244,6 +235,8 @@ const tickHandler = (data: { [string]: Ticks }) => {
       const pairDataArrLength = pairDataArr.length;
 
       let price = 0;
+      let prevPrice = 0;
+      let lastPrice = 0;
       let max = 0;
       let min = Number.POSITIVE_INFINITY;
       let size = 0;
@@ -270,24 +263,28 @@ const tickHandler = (data: { [string]: Ticks }) => {
       }
 
       const pairDataArrNewLength = pairDataArr.length;
-      let change = 0;
 
       if (pairDataArrNewLength > 0) {
         const fItem = pairDataArr[0];
+        const sItem = pairDataArr[1];
         const lItem = pairDataArr[pairDataArrNewLength - 1];
-        const lastPrice = lItem[1];
         price = fItem[1];
-        const diff = price - lastPrice;
-        change = diff / lastPrice * 100;
+
+        if (sItem) {
+          prevPrice = sItem[1];
+        } else {
+          prevPrice = price;
+        }
+
+        lastPrice = lItem[1];
       } else {
         min = 0;
       }
 
-      messages[messagesLength] = `${pair} ${price} ${max} ${min} ${size} ${change} ${timeNow}`;
-      messagesLength += 1;
+      messages[pair] = `${price} ${prevPrice} ${lastPrice} ${max} ${min} ${size} ${timeNow}`;
     }
 
-    const strMess = ticksStringify(messages);
+    const strMess = JSON.stringify(messages);
     sendMessage(strMess);
   });
 };

@@ -10,7 +10,8 @@ clean() {
 clean
 export NODE_ENV=production
 export NODE_DEBUG=false
-npx babel $sourceDir --out-dir $buildDir --copy-files || exit 1
+
+npx webpack --mode production --progress --display minimal || exit 1
 sed -e '/"scripts"/,/}/d; /"devDependencies"/,/}/d' $packageFile > $buildDir/$packageFile
 rm -r -f $buildDir/data
 

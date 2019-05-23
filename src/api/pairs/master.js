@@ -303,7 +303,7 @@ const ticksHandler = (worker: Object, tick: any[]) => {
   const pairName = tick[0];
 
   if (!isExistsPair(pairName)) {
-    if (addPair(pairName)) {
+    if (!addPair(pairName)) {
       return;
     }
 
