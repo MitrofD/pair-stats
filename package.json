@@ -23,11 +23,11 @@
     "eslint-loader": "^2.1.2",
     "eslint-plugin-flowtype": "^3.9.1",
     "eslint-plugin-flowtype-errors": "^4.1.0",
-    "eslint-plugin-import": "^2.17.2",
+    "eslint-plugin-import": "^2.17.3",
     "file-loader": "^3.0.1",
-    "flow-bin": "^0.98.1",
-    "nodemon": "^1.19.0",
-    "snyk": "^1.167.0",
+    "flow-bin": "^0.99.1",
+    "nodemon": "^1.19.1",
+    "snyk": "^1.170.0",
     "terser": "^4.0.0",
     "thread-loader": "^2.1.2",
     "webpack": "^4.32.2",
@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "fast-json-parse": "^1.0.3",
-    "fast-json-stringify": "^1.15.2",
+    "fast-json-stringify": "^1.15.3",
     "node-rdkafka": "^2.6.1"
   }
 }

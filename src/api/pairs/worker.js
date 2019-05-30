@@ -74,7 +74,7 @@ statsProducer.on('ready', () => {
   };
 }).on('disconnected', () => {
   sendMessage = () => {};
-}).on('error', () => {});
+}).on('error', globThrowError);
 
 statsProducer.connect();
 
@@ -231,9 +231,6 @@ const tickHandler = (data: { [string]: Ticks }) => {
         pairDataArr.splice(0, 0, addItem);
       }
 
-      const beforeTime = timeNow - OPTIONS.DURATION;
-      const pairDataArrLength = pairDataArr.length;
-
       let price = 0;
       let prevPrice = 0;
       let lastPrice = 0;
@@ -241,13 +238,20 @@ const tickHandler = (data: { [string]: Ticks }) => {
       let min = Number.POSITIVE_INFINITY;
       let size = 0;
       let tI = 0;
+      const beforeTime = timeNow - OPTIONS.DURATION;
+      const pairDataArrLength = pairDataArr.length;
 
       for (; tI < pairDataArrLength; tI += 1) {
         const pairDataItem = pairDataArr[tI];
 
         if (pairDataItem[0] < beforeTime) {
-          const sliceLength = pairDataArrLength - tI;
-          pairDataArr.splice(tI, sliceLength);
+          if (tI > 0) {
+            const sliceLength = pairDataArrLength - tI;
+            pairDataArr.splice(tI, sliceLength);
+          } else {
+            min = 0;
+          }
+
           break;
         }
 
