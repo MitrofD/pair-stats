@@ -246,8 +246,7 @@ const tickHandler = (data: { [string]: Ticks }) => {
 
         if (pairDataItem[0] < beforeTime) {
           if (tI > 0) {
-            const sliceLength = pairDataArrLength - tI;
-            pairDataArr.splice(tI, sliceLength);
+            pairDataArr.splice(tI, pairDataArrLength);
           } else {
             min = 0;
           }
